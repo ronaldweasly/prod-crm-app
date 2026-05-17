@@ -137,45 +137,61 @@ export default function ClientDetail() {
   }, [id]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, state: any, setState: any, fieldKey: string) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    // Validate file
-    const validation = validateUploadFile(file);
-    if (!validation.valid) {
-      toast.error(`Upload failed: ${validation.errors[0]}`);
-      return;
-    }
-
-    if (!validation.sanitizedFile) {
-      toast.error('Failed to sanitize file');
-      return;
-    }
-
-    const toastId = toast.loading(`Validating and uploading ${file.name}...`);
+    const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
     try {
-      const sanitizedFile = validation.sanitizedFile;
-      const uniqueName = generateUniqueFilename(file.name, id, fieldKey);
+      const uploadedUrls: string[] = [];
 
-      // Upload to Storage (Cloudflare R2)
-      const publicUrl = await uploadFileToStorage(sanitizedFile, `clients/${id}/${fieldKey}`);
+      for (const file of files) {
+        // Validate file
+        const validation = validateUploadFile(file);
+        if (!validation.valid) {
+          toast.error(`File "${file.name}" failed: ${validation.errors[0]}`);
+          continue;
+        }
 
-      // Record the upload locally for tracking
-      addUploadRecord({
-        filename: uniqueName,
-        originalFilename: file.name,
-        clientId: id || 'unknown',
-        documentType: fieldKey,
-        fileSize: sanitizedFile.size,
-        mimeType: sanitizedFile.type,
-        uploadedBy: user?.email || 'unknown',
-        uploadedAt: new Date().toISOString(),
-        url: publicUrl,
-        status: 'completed',
-      });
+        if (!validation.sanitizedFile) {
+          toast.error(`Failed to sanitize file "${file.name}"`);
+          continue;
+        }
 
-      setState({ ...state, [fieldKey]: publicUrl });
-      toast.success(`${file.name} (${formatFileSize(file.size)}) uploaded!`, { id: toastId });
+        const sanitizedFile = validation.sanitizedFile;
+        const uniqueName = generateUniqueFilename(file.name, id, fieldKey);
+
+        // Upload to Storage (Cloudflare R2)
+        const publicUrl = await uploadFileToStorage(sanitizedFile, `clients/${id}/${fieldKey}`);
+
+        // Record the upload locally for tracking
+        addUploadRecord({
+          filename: uniqueName,
+          originalFilename: file.name,
+          clientId: id || 'unknown',
+          documentType: fieldKey,
+          fileSize: sanitizedFile.size,
+          mimeType: sanitizedFile.type,
+          uploadedBy: user?.email || 'unknown',
+          uploadedAt: new Date().toISOString(),
+          url: publicUrl,
+          status: 'completed',
+        });
+
+        uploadedUrls.push(publicUrl);
+      }
+
+      if (uploadedUrls.length === 0) {
+        toast.error('No files were successfully uploaded.', { id: toastId });
+        return;
+      }
+
+      // Keep existing files and append the new ones (comma-separated string)
+      const existingUrlsStr = state[fieldKey] || '';
+      const existingUrls = existingUrlsStr.split(',').map((u: string) => u.trim()).filter(Boolean);
+      const combinedUrls = [...existingUrls, ...uploadedUrls].join(', ');
+
+      setState({ ...state, [fieldKey]: combinedUrls });
+      toast.success(`Successfully uploaded ${uploadedUrls.length} file(s)!`, { id: toastId });
     } catch (error: any) {
       console.error('Upload error:', error);
       toast.error(`Upload failed: ${error.message || 'Unknown error'}`, { id: toastId });
