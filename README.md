@@ -1,228 +1,87 @@
-# SolarCRM - Full-Stack Solar Installation CRM
+# ☀️ Doctor Electric CRM (prod-crm-app)
 
-A powerful CRM tailored for Solar Installation companies, built with React, Tailwind CSS, Node.js backend, and PostgreSQL database.
+A modern, high-performance solar CRM designed for managing clients, workflows, quotations, installations, payments, and documents. Optimized for seamless desktop and mobile/tablet usage.
 
-## ✨ Features
+---
 
-- 🔐 **Role-based Access Control** (Admin, Sales, Engineer, Accountant)
-- 🔑 **Google OAuth Integration**
-- 📊 **Dashboard with Pipeline Analytics** & Recharts
-- 📄 **PDF Generation** with jsPDF
-- 📈 **Excel/CSV Export** with SheetJS
-- 🔔 **In-App Notifications** for Overdue Payments and Stale Pipeline stages
-- 🗄️ **PostgreSQL Database** (self-hosted or managed)
-- 📱 **Mobile Responsive** design with Tailwind CSS
-- 🚀 **Docker-based** deployment
+## ⚡ Main Features
+
+- **🎯 Simple & Quick Lead Form**: Create leads in seconds by asking for only 5 essential fields (Name, Phone, Address, Roof, System Size). Add detailed documents, surveys, quotations, and payments later from the Client Panel.
+- **📷 Mobile Camera Integration**: Instant photo capture capability directly within the browser using phone/tablet camera (`capture="environment"`) for Site Images, Aadhaar cards, Electricity bills, and Subsidy documents.
+- **🛡️ Secure User Management**: Complete User control panel with customized roles (Admin, Sales Team, Engineer, Accountant, Manager).
+- **❌ Admin User Deletion**: Admins can easily purge outdated system users directly from the UI, with complete activity audit logging and automatic safe-guards to prevent self-deletion.
+- **☁️ Hourly R2 Backups**: Built-in automated scheduler that saves compressed, gzipped database snapshots directly to Cloudflare R2 every hour. Prunes older files automatically to keep a rolling 7 days (168 points) of recovery history.
+- **🚀 One-Click Startups**: Included platform-specific launch scripts to boot up the frontend and backend instantly with auto-cleaning ports.
 
 ---
 
 ## 🚀 Quick Start
 
-### 🖥️ **For Production (Linux Server)**
+### 💻 Windows Setup
+Just double-click or run from PowerShell:
+```powershell
+.\start.ps1
+```
 
-**One-command deployment on Ubuntu 22.04+:**
-
+### 🐧 Linux / Ubuntu Setup
+Run the unified bash script:
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/solarcrm/main/deploy.sh | sudo bash
+chmod +x start.sh
+./start.sh
 ```
 
-👉 **See [DEPLOYMENT.md](DEPLOYMENT.md) for full production guide**
-
-### 💻 **For Local Development**
-
-```bash
-# Install dependencies
-npm install
-
-# Copy environment template
-cp .env.example .env
-
-# Start dev server
-npm run dev
-```
-
-The app starts at `http://localhost:3000`
+The script automatically detects missing packages, installs them, handles ports 3000 & 4000, compiles TypeScript code, and fires up both frontend and backend concurrently!
 
 ---
 
-## 📋 First-Time Setup
+## 🔑 Default Administrator Login
 
-### 1. Environment Configuration
+Access the portal using the default credentials:
 
-Copy the template and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-**For Development (quickest):**
-```env
-VITE_USE_MOCK="true"        # Use built-in sample data
-APP_URL="http://localhost:3000"
-```
-
-**For Production:**
-```env
-VITE_USE_MOCK="false"
-VITE_SPREADSHEET_ID="your_google_sheets_id"
-POSTGRES_PASSWORD="strong_password_here"
-APP_URL="https://yourdomain.com"
-```
-
-### 2. Database Setup (Production Only)
-
-If using Google Sheets (recommended for quick setup):
-```bash
-# Create 9 sheets with exact names:
-# Clients, WorkflowStatus, Surveys, Quotations, Installations, 
-# Subsidies, Payments, Documents, Users
-```
-
-If using PostgreSQL (comes with Docker deployment):
-- Already configured in docker-compose.yml
-- Auto-migrated on startup
+| Field    | Value                   |
+|----------|-------------------------|
+| URL      | `http://localhost:3000` |
+| Email    | `admin@solarcrm.local`  |
+| Password | `admin12345`            |
 
 ---
 
-## 📦 Tech Stack
+## 💾 Local Storage Info
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 19 + TypeScript + Tailwind CSS + Vite |
-| **Backend** | Node.js 18+ + Express.js |
-| **Database** | PostgreSQL 16 |
-| **Server** | Nginx (reverse proxy) |
-| **Infrastructure** | Docker & Docker Compose |
-| **Auth** | Google OAuth 2.0 |
-| **File Storage** | Cloudflare R2 (optional) |
-
----
-
-## 🔧 Development
-
-### Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Development server (with hot reload)
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-
-# Type checking
-npm run lint
+All database tables are serialized locally inside a schema-less JSON repository for extremely easy VPS migration:
 ```
-
-### Backend Development
-
-```bash
-cd infrastructure/backend
-
-npm install
-npm run dev          # Watch mode with tsx
-npm run build        # Compile TypeScript
-npm run db:migrate   # Run migrations
+infrastructure/backend/data/solarcrm.local.json
 ```
+No database setup or installation is required; the JSON store is initialized automatically on startup.
 
 ---
 
-## 🐳 Docker Deployment
+## 📦 Cloudflare R2 Storage & Backups
 
-Deploy the full stack with Docker Compose:
+Pre-signed URLs are enabled out-of-the-box for highly performant and secure directly-to-edge uploads without clogging VPS bandwidth.
+- Scheduled backups are saved under: `backups/db/YYYY-MM-DD/HH-mm.json.gz`
+- The latest state is continually maintained at: `backups/db/latest.json.gz`
+- Admins can manually force an immediate R2 backup snapshot at any time by calling `POST /api/backup/r2` or from the management panel.
 
-```bash
-cd infrastructure
+---
 
-# Build images (first time)
-docker-compose build
+## 📁 Repository Map
 
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop everything
-docker-compose down
 ```
-
-Services include:
-- **Frontend** (Nginx static + reverse proxy)
-- **Backend API** (Node.js/Express)
-- **PostgreSQL** (database)
-- **Uptime Kuma** (monitoring)
-
----
-
-## 🆘 Troubleshooting
-
-### App Won't Start?
-
-```bash
-# Check environment variables
-cat .env
-
-# Verify mock data mode is enabled for dev
-grep "VITE_USE_MOCK" .env
-
-# Clear and reinstall
-rm -rf node_modules
-npm install
-npm run dev
+solarcrm/
+├── src/                        # React Frontend Source
+│   ├── pages/                  # Pages (Dashboard, Clients, Users...)
+│   ├── components/             # Components (Proposal, Camera Upload...)
+│   ├── sheets/                 # API client wrapper & types
+│   └── ui/                     # Premium UI components
+├── infrastructure/
+│   ├── backend/                # Express API Server
+│   │   ├── src/
+│   │   │   ├── routes/         # REST API routers (auth, clients, backup...)
+│   │   │   ├── db/             # Local database & R2 schedules
+│   │   │   └── middleware/     # Auth checks & error handlers
+│   │   └── data/               # solarcrm.local.json
+├── start.sh                    # One-Click Linux/Ubuntu Script
+├── start.ps1                   # One-Click Windows Script
+└── README.md                   # Project Documentation
 ```
-
-### On Linux Server?
-
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for production troubleshooting
-
----
-
-## 📚 Documentation
-
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment guide
-- **[OAUTH_SETUP.md](OAUTH_SETUP.md)** - Google OAuth configuration
-- **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)** - Backend API reference
-- **[MOBILE_DEV_GUIDE.md](MOBILE_DEV_GUIDE.md)** - Mobile optimization tips
-
----
-
-## 🔒 Security
-
-Production deployments include:
-- ✅ Firewall (UFW) with automatic setup
-- ✅ Fail2Ban for intrusion prevention
-- ✅ HTTPS/SSL support (bring your own certificate)
-- ✅ Database encryption at rest
-- ✅ Rate limiting on API endpoints
-- ✅ CORS protection
-
----
-
-## 📊 Monitoring
-
-**Uptime Kuma** monitoring dashboard available at:
-```
-http://your-server:3001
-```
-
-Monitors:
-- All services health
-- Endpoint availability
-- Response times
-- Automatic alerts via Telegram/Email/Discord
-
----
-
-## 💬 Support & Contributing
-
-- **Issues?** Check [DEPLOYMENT.md](DEPLOYMENT.md)
-- **Questions?** See README in `infrastructure/`
-- **Bug reports?** Open an issue on GitHub
-
-**Ready to deploy?** 👉 [DEPLOYMENT.md](DEPLOYMENT.md)

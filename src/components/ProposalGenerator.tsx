@@ -5,7 +5,7 @@ import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { useAuth } from '../contexts/AuthContext';
-import { uploadFileToStorage } from '../sheets/supabase';
+import { uploadFileToStorage } from '../sheets/storage';
 import { ClientRow, QuotationRow } from '../sheets/types';
 import { ProposalData } from '../sheets/proposalTypes';
 import { generateProposalPdf } from '../utils/proposalPdf';

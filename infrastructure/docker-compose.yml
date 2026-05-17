@@ -26,8 +26,7 @@ services:
     container_name: solarcrm-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
@@ -43,11 +42,11 @@ services:
       - frontend-net
       - backend-net
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health" ]
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 5s
     # Resource limits for 4GB VPS
     deploy:
       resources:
@@ -64,7 +63,7 @@ services:
   # ---------------------------------------------------------------------------
   frontend:
     build:
-      context: ../                  # Root directory (has package.json, src/, vite.config.ts)
+      context: ../ # Root directory (has package.json, src/, vite.config.ts)
       dockerfile: infrastructure/frontend/Dockerfile
       args:
         - VITE_API_URL=${VITE_API_URL}
@@ -92,12 +91,20 @@ services:
       dockerfile: Dockerfile
     container_name: solarcrm-backend
     restart: unless-stopped
+    # Expose port 4000 to host so the Vite dev server proxy can reach it
+    ports:
+      - "127.0.0.1:4000:4000"
     env_file:
       - .env
     environment:
       - NODE_ENV=production
       - PORT=4000
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,7 +112,7 @@ services:
       - backend-net
       - db-net
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/health"]
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:4000/api/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))" ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -144,7 +151,7 @@ services:
       - db-net
     # IMPORTANT: No ports exposed to host. DB is internal only.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -168,7 +175,7 @@ services:
     volumes:
       - uptime-kuma-data:/app/data
     ports:
-      - "127.0.0.1:3001:3001"  # Only accessible locally, proxied via Nginx
+      - "127.0.0.1:3001:3001" # Only accessible locally, proxied via Nginx
     networks:
       - frontend-net
       - backend-net
@@ -177,7 +184,6 @@ services:
         limits:
           memory: 256M
           cpus: "0.25"
-
   # ===========================================================================
   # FUTURE PLACEHOLDERS - Uncomment when needed
   # ===========================================================================
@@ -235,17 +241,17 @@ services:
   #         memory: 512M
   #         cpus: "0.25"
 
-# =============================================================================
-# NETWORKS
-# =============================================================================
-# WHY three networks:
-# - frontend-net: Nginx ↔ Monitoring (public-facing services)
-# - backend-net: Nginx ↔ Backend ↔ Monitoring (API layer)
-# - db-net: Backend ↔ PostgreSQL (database layer, most isolated)
-#
-# This follows the principle of least privilege — PostgreSQL can only be
-# reached by the backend, never by Nginx or the browser.
-# =============================================================================
+  # =============================================================================
+  # NETWORKS
+  # =============================================================================
+  # WHY three networks:
+  # - frontend-net: Nginx ↔ Monitoring (public-facing services)
+  # - backend-net: Nginx ↔ Backend ↔ Monitoring (API layer)
+  # - db-net: Backend ↔ PostgreSQL (database layer, most isolated)
+  #
+  # This follows the principle of least privilege — PostgreSQL can only be
+  # reached by the backend, never by Nginx or the browser.
+  # =============================================================================
 networks:
   frontend-net:
     driver: bridge
@@ -253,7 +259,7 @@ networks:
     driver: bridge
   db-net:
     driver: bridge
-    internal: true  # No internet access for DB network
+    internal: true # No internet access for DB network
 
 # =============================================================================
 # VOLUMES

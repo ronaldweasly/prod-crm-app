@@ -1,20 +1,10 @@
-// =============================================================================
-// Health Check Route
-// =============================================================================
-// Used by:
-// - Docker HEALTHCHECK
-// - Uptime Kuma monitoring
-// - Cloudflare health checks
-// - CI/CD deployment verification
-// =============================================================================
-
-import { Router, Request, Response } from 'express';
-import { pool } from '../db/pool.js';
+import { Router, Response } from 'express';
+import { getDb, localDbInfo } from '../db/localStore.js';
 
 export const healthRouter = Router();
 
-healthRouter.get('/', async (_req: Request, res: Response) => {
-  const checks: Record<string, string> = {
+healthRouter.get('/', async (_req, res: Response) => {
+  const checks: Record<string, any> = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: `${Math.floor(process.uptime())}s`,
@@ -22,16 +12,18 @@ healthRouter.get('/', async (_req: Request, res: Response) => {
   };
 
   try {
-    // Check database connectivity
-    const dbStart = Date.now();
-    await pool.query('SELECT 1');
-    checks.database = `ok (${Date.now() - dbStart}ms)`;
-    checks.db_pool = `${pool.totalCount} total, ${pool.idleCount} idle, ${pool.waitingCount} waiting`;
+    const db = await getDb();
+    checks.database = 'local-json-ok';
+    checks.database_path = (await localDbInfo()).path;
+    checks.tables = {
+      clients: db.clients.length,
+      users: db.users.length,
+      backups: db.backup_snapshots.length,
+    };
   } catch (err) {
     checks.database = 'error';
     checks.status = 'degraded';
   }
 
-  const statusCode = checks.status === 'ok' ? 200 : 503;
-  res.status(statusCode).json(checks);
+  res.status(checks.status === 'ok' ? 200 : 503).json(checks);
 });

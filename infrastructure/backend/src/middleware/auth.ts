@@ -4,7 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { query } from '../db/pool.js';
+import { getTable } from '../db/localStore.js';
 
 export interface AuthUser {
   id: string;
@@ -39,28 +39,31 @@ const JWT_SECRET = (() => {
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing or invalid authorization header' });
-    return;
+  // Accept token from Authorization header OR from httpOnly auth_token cookie
+  let token: string | undefined;
+
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.cookies?.auth_token) {
+    token = req.cookies.auth_token;
   }
 
-  const token = authHeader.split(' ')[1];
+  if (!token) {
+    res.status(401).json({ error: 'Missing or invalid authorization' });
+    return;
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string };
 
-    // Verify user still exists and is active
-    const result = await query(
-      'SELECT id, email, role, name, active FROM users WHERE id = $1',
-      [decoded.userId]
-    );
+    // Verify user still exists and is active via local store
+    const users = await getTable<any>('users');
+    const user = users.find((u: any) => u.id === decoded.userId);
 
-    if (result.rows.length === 0) {
+    if (!user) {
       res.status(401).json({ error: 'User not found' });
       return;
     }
-
-    const user = result.rows[0];
 
     if (!user.active) {
       res.status(403).json({ error: 'Account is deactivated' });

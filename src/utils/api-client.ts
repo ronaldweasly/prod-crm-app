@@ -3,6 +3,8 @@
  * All requests to the backend API will automatically include auth cookies
  */
 
+const API_BASE = '/api';
+
 interface FetchOptions extends RequestInit {
   // Standard fetch options
 }
@@ -11,8 +13,9 @@ export async function apiRequest<T = any>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-  const url = new URL(endpoint, baseUrl).toString();
+  // Ensure endpoint starts with /
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${API_BASE}${path}`;
 
   const response = await fetch(url, {
     ...options,

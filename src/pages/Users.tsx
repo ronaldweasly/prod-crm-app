@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSheetData, appendRow, updateRow } from '../sheets/api';
+import { getSheetData, appendRow, updateRow, deleteUser } from '../sheets/api';
 import { SHEET_NAMES, COLUMNS } from '../sheets/config';
 import { UserRow } from '../sheets/types';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
@@ -15,13 +15,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRoleAccess } from '../hooks/useRoleAccess';
 import BackupManager from './BackupManager';
 import ActivityViewer from '../components/ActivityViewer';
-import { Lock, AlertCircle } from 'lucide-react';
+import { Lock, AlertCircle, Trash2 } from 'lucide-react';
 
 interface UserFormData {
   Email: string;
   Name: string;
   Role: string;
   Active: string;
+  Password?: string;
 }
 
 export default function UsersPage() {
@@ -70,21 +71,45 @@ export default function UsersPage() {
 
   const onSubmit = async (data: UserFormData) => {
     try {
-      const rowData = [data.Email, data.Role, data.Name, data.Active];
-      
       if (editingUser !== null) {
         // Update
+        const rowData = [data.Email, data.Role, data.Name, data.Active, editingUser.Password || ''];
         await updateRow(SHEET_NAMES.USERS, editingUser._rowIndex, rowData);
         toast.success('User updated successfully');
       } else {
         // Create
+        if (!data.Password) {
+          toast.error('Password is required for new users');
+          return;
+        }
+        const rowData = [data.Email, data.Role, data.Name, data.Active, data.Password];
         await appendRow(SHEET_NAMES.USERS, rowData);
-        toast.success('User added successfully');
+        toast.success('User added successfully with password');
       }
       setIsModalOpen(false);
       loadUsers();
     } catch (err: any) {
       toast.error(err.message || 'Failed to save user');
+    }
+  };
+  
+  const handleDeleteUser = async (targetUser: any) => {
+    if (targetUser.Email.toLowerCase() === user?.email?.toLowerCase()) {
+      toast.error('You cannot delete your own account');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to permanently delete user ${targetUser.Name} (${targetUser.Email})? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const toastId = toast.loading('Deleting user...');
+      await deleteUser(targetUser.Email);
+      toast.success('User deleted successfully', { id: toastId });
+      loadUsers();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete user');
     }
   };
 
@@ -135,9 +160,14 @@ export default function UsersPage() {
                       <p className="font-medium text-gray-900 truncate">{user.Name}</p>
                       <p className="text-xs text-gray-500 truncate">{user.Email}</p>
                     </div>
-                    <button onClick={() => openEdit(user)} className="text-blue-700 hover:text-blue-800 font-medium text-xs whitespace-nowrap">
-                      Edit
-                    </button>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button onClick={() => openEdit(user)} className="text-blue-700 hover:text-blue-800 font-medium text-xs whitespace-nowrap">
+                        Edit
+                      </button>
+                      <button onClick={() => handleDeleteUser(user)} className="text-red-600 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors" title="Delete User">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="info" className="text-xs">{user.Role}</Badge>
@@ -193,9 +223,14 @@ export default function UsersPage() {
                         </Badge>
                       </td>
                       <td className="px-4 md:px-6 py-4 text-right">
-                        <button onClick={() => openEdit(user)} className="text-blue-700 hover:text-blue-800 font-medium">
-                          Edit
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button onClick={() => openEdit(user)} className="text-blue-700 hover:text-blue-800 font-medium">
+                            Edit
+                          </button>
+                          <button onClick={() => handleDeleteUser(user)} className="text-red-600 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete User">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -240,6 +275,22 @@ export default function UsersPage() {
               { label: 'Inactive', value: 'FALSE' },
             ]}
           />
+
+          {!editingUser && (
+            <div className="pt-4 border-t border-gray-100">
+              <Input 
+                label="Password" 
+                type="password"
+                {...register('Password', { 
+                  required: editingUser ? false : 'Password is required for new users',
+                  minLength: { value: 6, message: 'Password must be at least 6 characters' }
+                })} 
+                error={errors.Password?.message}
+                placeholder="Min. 6 characters"
+              />
+              <p className="mt-1 text-[10px] text-gray-400">Password must be at least 6 characters.</p>
+            </div>
+          )}
           <div className="pt-4 flex justify-end space-x-2">
             <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>Cancel</Button>
             <Button type="submit">Save User</Button>

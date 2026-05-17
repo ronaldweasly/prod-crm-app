@@ -34,22 +34,102 @@ const sysSizes   = ['3','5','8','10','15','20'];
 const BASE_DATE   = new Date('2025-11-01T00:00:00Z');
 const END_DATE    = new Date('2026-04-30T00:00:00Z');
 
-// ─── Build the mock database ──────────────────────────────────────────────────
-export const MOCK_DB: Record<string, any[]> = {
-  [SHEET_NAMES.USERS]: [
-    { Email: 'hfj1887@gmail.com',      Role: 'Admin',      Name: 'Himanshu Shukla', Active: 'TRUE' },
-    { Email: 'admin@gmail.com',        Role: 'Admin',      Name: 'Admin User',      Active: 'TRUE' },
-    { Email: 'admin@solar.com',        Role: 'Admin',      Name: 'John Doe',        Active: 'TRUE' },
-    { Email: 'sales@solar.com',        Role: 'Sales Team', Name: 'Alice Sales',     Active: 'TRUE' },
-    { Email: 'engineer@solar.com',     Role: 'Engineer',   Name: 'Bob Builder',     Active: 'TRUE' },
-    { Email: 'accountant@solar.com',   Role: 'Accountant', Name: 'Cathy Coin',      Active: 'TRUE' },
-  ],
-  [SHEET_NAMES.CLIENTS]:          [],
-  [SHEET_NAMES.WORKFLOW_STATUS]:  [],
-  [SHEET_NAMES.SURVEYS]:          [],
-  [SHEET_NAMES.QUOTATIONS]:       [],
-  [SHEET_NAMES.INSTALLATIONS]:    [],
-  [SHEET_NAMES.SUBSIDIES]:        [],
-  [SHEET_NAMES.PAYMENTS]:         [],
-  [SHEET_NAMES.DOCUMENTS]:        [],
-};
+// ─── LOCALSTORAGE PERSISTENCE ─────────────────────────────────────────────────
+// Data persists across page refreshes by syncing to localStorage
+const STORAGE_KEY = 'solarcrm_mock_db';
+
+function loadFromStorage(): Record<string, any[]> | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn('[MockDB] Failed to load from localStorage:', e);
+  }
+  return null;
+}
+
+function saveToStorage(db: Record<string, any[]>): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  } catch (e) {
+    console.warn('[MockDB] Failed to save to localStorage:', e);
+  }
+}
+
+// ─── Initial default users (always seeded) ───────────────────────────────────
+const DEFAULT_USERS = [
+  { Email: 'hfj1887@gmail.com',      Role: 'Admin',      Name: 'Himanshu Shukla', Active: 'TRUE' },
+  { Email: 'admin@gmail.com',        Role: 'Admin',      Name: 'Admin User',      Active: 'TRUE' },
+  { Email: 'admin@solar.com',        Role: 'Admin',      Name: 'John Doe',        Active: 'TRUE' },
+  { Email: 'sales@solar.com',        Role: 'Sales Team', Name: 'Alice Sales',     Active: 'TRUE' },
+  { Email: 'engineer@solar.com',     Role: 'Engineer',   Name: 'Bob Builder',     Active: 'TRUE' },
+  { Email: 'accountant@solar.com',   Role: 'Accountant', Name: 'Cathy Coin',      Active: 'TRUE' },
+];
+
+// ─── Build the mock database with persistence ────────────────────────────────
+function buildMockDb(): Record<string, any[]> {
+  const stored = loadFromStorage();
+  if (stored) {
+    // Ensure default users are always present even if storage was cleared
+    if (!stored[SHEET_NAMES.USERS] || stored[SHEET_NAMES.USERS].length === 0) {
+      stored[SHEET_NAMES.USERS] = [...DEFAULT_USERS];
+    }
+    return stored;
+  }
+
+  // Fresh start — create initial structure
+  const fresh: Record<string, any[]> = {
+    [SHEET_NAMES.USERS]: [...DEFAULT_USERS],
+    [SHEET_NAMES.CLIENTS]:          [],
+    [SHEET_NAMES.WORKFLOW_STATUS]:  [],
+    [SHEET_NAMES.SURVEYS]:          [],
+    [SHEET_NAMES.QUOTATIONS]:       [],
+    [SHEET_NAMES.INSTALLATIONS]:    [],
+    [SHEET_NAMES.SUBSIDIES]:        [],
+    [SHEET_NAMES.PAYMENTS]:         [],
+    [SHEET_NAMES.DOCUMENTS]:        [],
+  };
+
+  saveToStorage(fresh);
+  return fresh;
+}
+
+// Export the persistent mock database
+export const MOCK_DB: Record<string, any[]> = buildMockDb();
+
+/**
+ * Persist any mutations to MOCK_DB back to localStorage.
+ * Must be called after every mutation (append, update, delete).
+ */
+export function persistMockDb(): void {
+  saveToStorage(MOCK_DB);
+}
+
+/**
+ * Reset all mock data (clears localStorage + reloads defaults).
+ * Useful for testing or when user explicitly requests a reset.
+ */
+export function resetMockDb(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn('[MockDB] Failed to clear localStorage:', e);
+  }
+
+  // Reset in-memory arrays
+  MOCK_DB[SHEET_NAMES.USERS] = [...DEFAULT_USERS];
+  MOCK_DB[SHEET_NAMES.CLIENTS] = [];
+  MOCK_DB[SHEET_NAMES.WORKFLOW_STATUS] = [];
+  MOCK_DB[SHEET_NAMES.SURVEYS] = [];
+  MOCK_DB[SHEET_NAMES.QUOTATIONS] = [];
+  MOCK_DB[SHEET_NAMES.INSTALLATIONS] = [];
+  MOCK_DB[SHEET_NAMES.SUBSIDIES] = [];
+  MOCK_DB[SHEET_NAMES.PAYMENTS] = [];
+  MOCK_DB[SHEET_NAMES.DOCUMENTS] = [];
+
+  // Persist the reset state
+  persistMockDb();
+  console.info('[MockDB] Reset complete');
+}

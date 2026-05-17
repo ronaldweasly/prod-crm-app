@@ -16,16 +16,16 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSlideOpen, setIsSlideOpen] = useState(false);
-  const [salesUsers, setSalesUsers] = useState<{label: string, value: string}[]>([]);
+  const [salesUsers, setSalesUsers] = useState<{ label: string, value: string }[]>([]);
   const [search, setSearch] = useState('');
-  
+
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const loadData = async () => {
+  const loadData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [allClients, workflow, allUsers] = await Promise.all([
         getSheetData<ClientRow>(SHEET_NAMES.CLIENTS),
         getSheetData<WorkflowStatusRow>(SHEET_NAMES.WORKFLOW_STATUS),
@@ -34,7 +34,7 @@ export default function ClientsPage() {
 
       const workflowMap = new Map();
       workflow.forEach(w => {
-         workflowMap.set(w['Client ID'], w.Stage);
+        workflowMap.set(w['Client ID'], w.Stage);
       });
 
       const merged = allClients.map(c => ({
@@ -47,12 +47,12 @@ export default function ClientsPage() {
       const assignees = allUsers
         .filter(u => u.Active === 'TRUE' && (u.Role === 'Sales Team' || u.Role === 'Admin'))
         .map(u => ({ label: u.Name || u.Email, value: u.Email }));
-      
+
       setSalesUsers(assignees);
     } catch (error) {
       toast.error('Failed to load clients');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -60,14 +60,15 @@ export default function ClientsPage() {
     loadData();
   }, []);
 
-  // Open slide if ?add=1 present in URL
+  // Open slide if ?add=1 present in URL (only open on mount / fresh navigation, never close reactively)
   useEffect(() => {
     if (searchParams.get('add')) setIsSlideOpen(true);
-    else setIsSlideOpen(false);
+    // Deliberately NOT setting isSlideOpen(false) here — closing is handled by onClose/onSuccess
+    // so that clearing searchParams doesn't unmount the form mid-flight.
   }, [searchParams]);
 
-  const filteredClients = clients.filter(c => 
-    c.Name.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredClients = clients.filter(c =>
+    c.Name.toLowerCase().includes(search.toLowerCase()) ||
     c.Phone.includes(search) ||
     c.Stage.toLowerCase().includes(search.toLowerCase())
   );
@@ -88,7 +89,7 @@ export default function ClientsPage() {
                        focus:ring-blue-500 focus:border-transparent"
           />
           <Button onClick={() => { setIsSlideOpen(true); setSearchParams({ add: '1' }); }} className="whitespace-nowrap shrink-0 h-10 sm:h-auto">
-            <span className="hidden sm:inline">+ Add Client</span>
+            <span className="hidden sm:inline">+ New Lead</span>
             <span className="sm:hidden text-lg leading-none">+</span>
           </Button>
         </div>
@@ -125,8 +126,8 @@ export default function ClientsPage() {
                       <p className="text-xs text-slate-500 font-mono">{client.ID}</p>
                     </div>
                     <Badge variant={
-                      client.Stage === 'Project Closed' ? 'success' : 
-                      client.Stage.includes('Installation') ? 'warning' : 'default'
+                      client.Stage === 'Project Closed' ? 'success' :
+                        client.Stage.includes('Installation') ? 'warning' : 'default'
                     }>
                       {client.Stage}
                     </Badge>
@@ -174,8 +175,8 @@ export default function ClientsPage() {
                   </tr>
                 ) : (
                   filteredClients.map((client, i) => (
-                    <tr 
-                      key={i} 
+                    <tr
+                      key={i}
                       className="hover:bg-slate-50 transition-colors cursor-pointer border-b border-slate-50"
                       onClick={() => navigate(`/clients/${client.ID}`)}
                     >
@@ -190,8 +191,8 @@ export default function ClientsPage() {
                       </td>
                       <td className="px-4 md:px-6 py-4">
                         <Badge variant={
-                          client.Stage === 'Project Closed' ? 'success' : 
-                          client.Stage.includes('Installation') ? 'warning' : 'default'}
+                          client.Stage === 'Project Closed' ? 'success' :
+                            client.Stage.includes('Installation') ? 'warning' : 'default'}
                         >
                           {client.Stage}
                         </Badge>
@@ -208,13 +209,14 @@ export default function ClientsPage() {
         </CardContent>
       </Card>
 
-      <SlideOver isOpen={isSlideOpen} onClose={() => { setIsSlideOpen(false); setSearchParams({}); }} title="Add New Client">
-        <MultiStepClientForm 
-          salesUsers={salesUsers} 
+      <SlideOver isOpen={isSlideOpen} onClose={() => { setIsSlideOpen(false); setSearchParams({}, { replace: true }); }} title="New Lead">
+        <MultiStepClientForm
+          salesUsers={salesUsers}
           user={user}
           onSuccess={() => {
             setIsSlideOpen(false);
-            loadData();
+            setSearchParams({}, { replace: true });
+            loadData(true);
           }}
         />
       </SlideOver>

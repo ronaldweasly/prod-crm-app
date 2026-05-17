@@ -3,9 +3,8 @@ import {
   signInUser, 
   signOutUser, 
   getCurrentSession,
-  supabase 
-} from '../sheets/supabase';
-import { getSheetData } from '../sheets/api';
+} from '../sheets/localAuth';
+import { getSheetData, appendRow } from '../sheets/api';
 import { UserRow, Role } from '../sheets/types';
 import { SHEET_NAMES } from '../sheets/config';
 import { logActivity } from '../sheets/activity';
@@ -25,6 +24,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
+  // Add refresh token functionality
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // If already loading THIS user, wait and don't duplicate the effort
     if (isLoadingRoleRef.current) {
-      // Wait up to 3 seconds for the load to complete
       let attempts = 0;
       while (isLoadingRoleRef.current && attempts < 30) {
         await new Promise(r => setTimeout(r, 100));
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const cached2 = userCacheRef.current.get(email.toLowerCase());
       if (cached2) return cached2;
-      if (isLoadingRoleRef.current) return null; // Still loading after timeout
+      if (isLoadingRoleRef.current) return null;
     }
     
     isLoadingRoleRef.current = true;
@@ -74,8 +74,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       let matchedUser = users.find((u) => u.Email?.toLowerCase() === email.toLowerCase());
 
+      // If user is found in session but not in users table, create minimal entry from session data
       if (!matchedUser) {
-        throw new Error(`User "${email}" is not registered in the system. Please contact your administrator.`);
+        const defaultRole: Role = (session.user.role as Role) || 'Sales Team';
+        const defaultName = session.user.name || email.split('@')[0];
+        
+        // Try to insert user into users table (non-blocking on failure)
+        try {
+          await appendRow(SHEET_NAMES.USERS, [
+            email,           // email
+            defaultRole,     // role
+            defaultName,     // name
+            'TRUE',          // active
+            '',              // password (managed by backend auth)
+          ]);
+          console.log('[Auth] Auto-registered user in DB:', email.toLowerCase());
+        } catch (insertErr: any) {
+          console.warn('[Auth] Could not auto-register user (may already exist):', insertErr.message);
+        }
+
+        matchedUser = {
+          Email: email,
+          Role: defaultRole,
+          Name: defaultName,
+          Active: 'TRUE',
+        };
       }
       
       if (matchedUser.Active !== 'TRUE') {
@@ -83,11 +106,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authUser: AuthUser = {
-        id: session.user.id,
+        id: session.user.id || email,
         email,
-        name: matchedUser.Name || session.user.user_metadata?.name || email.split('@')[0],
+        name: matchedUser.Name || session.user.name || email.split('@')[0],
         role: matchedUser.Role,
-        picture: session.user.user_metadata?.picture || session.user.user_metadata?.avatar_url,
+        picture: undefined,
         provider: 'email',
       };
 
@@ -109,9 +132,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return authUser;
     } catch (err: any) {
       console.error('[Auth] User role loading failed:', err.message);
-      setError(err.message || 'Failed to load user profile');
-      await signOutUser().catch(() => {});
-      setUser(null);
+      // Only sign out if the backend session itself is gone.
+      // Don't log out on rate-limit hits or transient network errors.
+      const session = await getCurrentSession().catch(() => null);
+      if (!session?.user) {
+        setError(err.message || 'Session expired');
+        await signOutUser().catch(() => {});
+        setUser(null);
+      } else {
+        console.warn('[Auth] Fetch error but session still valid — keeping user logged in');
+        setError(null);
+      }
       return null;
     } finally {
       isLoadingRoleRef.current = false;
@@ -132,18 +163,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const cached = JSON.parse(savedAuth);
             
-            // Verify user is still active in the database
-            if (import.meta.env.VITE_USE_MOCK === 'true') {
+            // Verify session is still valid via /me endpoint
+            const session = await getCurrentSession();
+            
+            if (session?.user && session.user.email === cached.email) {
+              // Session is still valid, restore from cache
               const users = await getSheetData<UserRow>(SHEET_NAMES.USERS).catch(() => []);
               const matchedUser = users.find((u) => u.Email?.toLowerCase() === cached.email.toLowerCase());
               
-              if (matchedUser && matchedUser.Active === 'TRUE') {
-                // User still exists and is active, restore from cache
+              if (!matchedUser || matchedUser.Active === 'TRUE') {
+                const role = (matchedUser?.Role || cached.role) as Role;
                 const authUser: AuthUser = {
                   id: cached.id,
                   email: cached.email,
                   name: cached.name,
-                  role: cached.role,
+                  role,
                   picture: cached.picture,
                   provider: cached.provider,
                 };
@@ -155,13 +189,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               } else {
                 localStorage.removeItem('solar_crm_auth');
               }
+            } else {
+              // Session expired or user mismatch
+              localStorage.removeItem('solar_crm_auth');
             }
           } catch (parseErr) {
             localStorage.removeItem('solar_crm_auth');
           }
         }
         
-        // SECOND: Check for Supabase session
+        // SECOND: Check for backend session via /me endpoint
         const session = await getCurrentSession();
         if (!mounted) return;
 
@@ -177,30 +214,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Listen for auth state changes (login/logout/token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
-
-        if (event === 'SIGNED_IN' && session?.user?.email) {
-          setIsLoading(true);
-          await loadUserRole(session.user.email);
-          if (mounted) setIsLoading(false);
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-          setError(null);
-          if (mounted) setIsLoading(false);
-        } else if (event === 'TOKEN_REFRESHED' && session?.user && !user) {
-          await loadUserRole(session.user.email!);
-        }
-      }
-    );
-
-    // Run direct session check
+    // Run session check
     init();
 
     // SAFETY NET: If nothing resolves within 3 seconds, stop loading
-    // This handles the case where Supabase is unreachable or taking too long
     const safetyTimer = setTimeout(() => {
       if (mounted && isLoading) {
         setIsLoading(false);
@@ -209,7 +226,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
-      subscription?.unsubscribe();
       clearTimeout(safetyTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,8 +244,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Login failed. No session returned.');
       }
 
-
-      
       // Wait for user role to be loaded before continuing
       const userLoaded = await loadUserRole(session.user.email);
       if (!userLoaded) {
@@ -246,21 +260,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         provider: userLoaded.provider,
       }));
 
-
       // User state is already set by loadUserRole
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed';
       console.error('Email login failed:', err);
       
       // FALLBACK: Try mock authentication for development
-      if (errorMessage.includes('Invalid login credentials') && import.meta.env.VITE_USE_MOCK === 'true') {
-
+      if (import.meta.env.VITE_USE_MOCK === 'true') {
         try {
           const users = await getSheetData<UserRow>(SHEET_NAMES.USERS).catch(() => []);
           const matchedUser = users.find((u) => u.Email?.toLowerCase() === email.toLowerCase());
           
           if (matchedUser && matchedUser.Active === 'TRUE') {
-
             const authUser: AuthUser = {
               id: `mock_${email}`,
               email,
@@ -275,7 +286,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(authUser);
             setError(null);
             
-            // Save session to localStorage for persistence across page refreshes
             localStorage.setItem('solar_crm_auth', JSON.stringify({
               id: authUser.id,
               email: authUser.email,
@@ -284,7 +294,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               picture: authUser.picture,
               provider: authUser.provider,
             }));
-            
 
             setIsLoading(false);
             return;
@@ -300,23 +309,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setError(errorMessage);
       }
-      
-      setIsLoading(false);
-      // On error, ensure we sign out the phantom session
-      try {
-        await signOutUser();
-      } catch (e) {
 
-      }
+      setIsLoading(false);
     }
   };
-
-
 
   const logout = async () => {
     setIsLoading(true);
     try {
-
       if (user) {
         logActivity({
           userId: user.id,
@@ -333,7 +333,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setError(null);
       localStorage.removeItem('solar_crm_auth');
-
+      // Clear any cached data on logout
+      userCacheRef.current.clear();
     } catch (err: any) {
       console.error('[Auth] Logout failed:', err.message);
       setError(err.message || 'Logout failed');

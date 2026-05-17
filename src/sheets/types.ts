@@ -15,6 +15,7 @@ export interface ClientRow {
   'Phone': string;
   'Address': string;
   'Roof Type': string;
+  'Battery Type': string;
   'System Size (kW)': string;
   'Created Date': string;
   'Assigned To': string;
@@ -72,7 +73,14 @@ export interface PaymentRow {
 export interface DocumentRow {
   'Client ID': string;
   'Aadhaar Link': string;
+  'Aadhaar Number': string;
   'Electricity Bill Link': string;
+  'Bill Number': string;
+  'PAN Card Link': string;
+  'Bank Details': string;
+  'Additional Doc 1 Link': string;
+  'Additional Doc 2 Link': string;
+  'Additional Doc 3 Link': string;
   'Quotation Doc Link': string;
   'Installation Photos Link': string;
   'Subsidy Docs Link': string;

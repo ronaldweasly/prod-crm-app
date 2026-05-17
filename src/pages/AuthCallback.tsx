@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../sheets/supabase';
+import { getCurrentSession } from '../sheets/localAuth';
 import { Sun } from 'lucide-react';
 
 /**
  * AuthCallback — mounted at /auth/callback
  *
- * Supabase redirects here after the OAuth provider approves the login.
- * The Supabase client automatically parses the URL fragment / code and
- * fires `onAuthStateChange`. We just wait for that event, then redirect.
+ * Handles auth redirects and session initialization.
+ * this component simply verifies the session is valid and redirects.
+ * It's kept as a safety net for any legacy redirect-based auth flows.
  */
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -18,55 +18,26 @@ export default function AuthCallback() {
   useEffect(() => {
     let mounted = true;
 
-    const goToDashboard = () => {
-      if (!mounted) return;
-      setTimeout(() => navigate('/dashboard', { replace: true }), 300);
-    };
+    (async () => {
+      try {
+        const session = await getCurrentSession();
+        if (!mounted) return;
 
-    const failAuth = (message: string) => {
-      if (!mounted) return;
-      setStatus('error');
-      setErrorMsg(message);
-    };
-
-    // Immediately check for an already-established session first.
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (data.session?.user) {
-          goToDashboard();
+        if (session?.user) {
+          setTimeout(() => navigate('/dashboard', { replace: true }), 300);
+        } else {
+          setStatus('error');
+          setErrorMsg('No valid session found. Please sign in again.');
         }
-      })
-      .catch(() => {
-        // noop: fallback listener + timeout handle failures
-      });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        goToDashboard();
-        return;
+      } catch {
+        if (!mounted) return;
+        setStatus('error');
+        setErrorMsg('Session validation failed. Please sign in again.');
       }
-
-      // Explicit sign-out from provider flow should surface as an auth failure.
-      if (event === 'SIGNED_OUT') {
-        failAuth('Authentication failed. Please try again.');
-      }
-    });
-
-    // Safety net: poll briefly for session before failing hard.
-    const timeout = setTimeout(async () => {
-      const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-      if (data.session?.user) {
-        goToDashboard();
-      } else {
-        failAuth('Authentication timed out. Please sign in again.');
-      }
-    }, 8000);
+    })();
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
-      clearTimeout(timeout);
     };
   }, [navigate]);
 
@@ -83,8 +54,8 @@ export default function AuthCallback() {
           </div>
 
           <div className="text-center">
-            <p className="text-slate-700 font-semibold text-base">Signing you in…</p>
-            <p className="text-slate-400 text-sm mt-1">Completing authentication, please wait.</p>
+            <p className="text-slate-700 font-semibold text-base">Verifying session…</p>
+            <p className="text-slate-400 text-sm mt-1">Please wait.</p>
           </div>
         </>
       ) : (

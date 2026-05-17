@@ -120,6 +120,20 @@ CREATE TABLE IF NOT EXISTS documents (
     subsidy_docs_link           TEXT
 );
 
+-- ─── BACKUP SNAPSHOTS ───────────────────────────────────────────────────────
+-- WHY: Stores full DB snapshots for rollback on data changes.
+-- Auto-backup triggered via POST /api/backup/auto
+CREATE TABLE IF NOT EXISTS backup_snapshots (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    label           VARCHAR(255) NOT NULL,
+    snapshot_data   JSONB NOT NULL,
+    table_counts    JSONB,
+    created_by      VARCHAR(255),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_snapshots_created ON backup_snapshots(created_at);
+
 -- ─── ACTIVITY LOG ───────────────────────────────────────────────────────────
 -- WHY: Audit trail for compliance and debugging
 CREATE TABLE IF NOT EXISTS activity_log (
@@ -135,22 +149,12 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 -- ─── INDEXES ────────────────────────────────────────────────────────────────
 -- WHY: Speed up common queries (lookups by client_id, date ranges, search)
--- Performance impact: 10-100x faster queries on large datasets
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_clients_assigned_to ON clients(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_clients_created_date ON clients(created_date DESC);
-CREATE INDEX IF NOT EXISTS idx_workflow_client_id ON workflow_status(client_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_updated_at ON workflow_status(updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_surveys_client_id ON surveys(client_id);
-CREATE INDEX IF NOT EXISTS idx_quotations_client_id ON quotations(client_id);
-CREATE INDEX IF NOT EXISTS idx_installations_client_id ON installations(client_id);
-CREATE INDEX IF NOT EXISTS idx_subsidies_client_id ON subsidies(client_id);
-CREATE INDEX IF NOT EXISTS idx_payments_client_id ON payments(client_id);
+CREATE INDEX IF NOT EXISTS idx_clients_created_date ON clients(created_date);
+CREATE INDEX IF NOT EXISTS idx_workflow_stage ON workflow_status(stage);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);
-CREATE INDEX IF NOT EXISTS idx_documents_client_id ON documents(client_id);
-CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_email);
-CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log(action);
 
 -- ─── UPDATED_AT TRIGGER ────────────────────────────────────────────────────
 -- Automatically update the updated_at column on row changes
@@ -177,298 +181,13 @@ BEGIN
     END LOOP;
 END $$;
 
--- =============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
--- =============================================================================
--- Enforce data isolation and access control at the database level
--- All policies follow: Admins can do everything, regular users have restrictions
-
--- ─── USERS TABLE RLS ─────────────────────────────────────────────────────────
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-
--- Users can only read their own record or all records if Admin
-CREATE POLICY users_read_policy ON users FOR SELECT
-  USING (
-    auth.uid()::text = id::text OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Only Admins can insert users
-CREATE POLICY users_insert_policy ON users FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Admins can update anyone; users can update only themselves
-CREATE POLICY users_update_policy ON users FOR UPDATE
-  USING (
-    auth.uid()::text = id::text OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  )
-  WITH CHECK (
-    auth.uid()::text = id::text OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Only Admins can delete users
-CREATE POLICY users_delete_policy ON users FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── CLIENTS TABLE RLS ───────────────────────────────────────────────────────
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-
--- Users can view clients assigned to them or all clients if Admin
-CREATE POLICY clients_read_policy ON clients FOR SELECT
-  USING (
-    assigned_to = (SELECT email FROM users WHERE id = auth.uid()) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Sales Team can create clients; others need Admin
-CREATE POLICY clients_insert_policy ON clients FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Sales Team')
-  );
-
--- Users can update clients assigned to them; Admins can update all
-CREATE POLICY clients_update_policy ON clients FOR UPDATE
-  USING (
-    assigned_to = (SELECT email FROM users WHERE id = auth.uid()) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  )
-  WITH CHECK (
-    assigned_to = (SELECT email FROM users WHERE id = auth.uid()) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Only Admins can delete clients
-CREATE POLICY clients_delete_policy ON clients FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── WORKFLOW_STATUS TABLE RLS ──────────────────────────────────────────────
-ALTER TABLE workflow_status ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY workflow_status_read_policy ON workflow_status FOR SELECT
-  USING (
-    client_id IN (
-      SELECT id FROM clients WHERE assigned_to = (SELECT email FROM users WHERE id = auth.uid())
-    ) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
-CREATE POLICY workflow_status_insert_policy ON workflow_status FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer', 'Sales Team')
-  );
-
-CREATE POLICY workflow_status_update_policy ON workflow_status FOR UPDATE
-  USING (
-    client_id IN (
-      SELECT id FROM clients WHERE assigned_to = (SELECT email FROM users WHERE id = auth.uid())
-    ) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  )
-  WITH CHECK (
-    client_id IN (
-      SELECT id FROM clients WHERE assigned_to = (SELECT email FROM users WHERE id = auth.uid())
-    ) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
-CREATE POLICY workflow_status_delete_policy ON workflow_status FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── SURVEYS TABLE RLS ──────────────────────────────────────────────────────
-ALTER TABLE surveys ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY surveys_read_policy ON surveys FOR SELECT
-  USING (
-    client_id IN (
-      SELECT id FROM clients WHERE assigned_to = (SELECT email FROM users WHERE id = auth.uid())
-    ) OR
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer', 'Accountant')
-  );
-
-CREATE POLICY surveys_insert_policy ON surveys FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY surveys_update_policy ON surveys FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY surveys_delete_policy ON surveys FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── QUOTATIONS TABLE RLS ───────────────────────────────────────────────────
-ALTER TABLE quotations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY quotations_read_policy ON quotations FOR SELECT
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer', 'Accountant')
-  );
-
-CREATE POLICY quotations_insert_policy ON quotations FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY quotations_update_policy ON quotations FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant', 'Engineer')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant', 'Engineer')
-  );
-
-CREATE POLICY quotations_delete_policy ON quotations FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── INSTALLATIONS TABLE RLS ────────────────────────────────────────────────
-ALTER TABLE installations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY installations_read_policy ON installations FOR SELECT
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer', 'Accountant')
-  );
-
-CREATE POLICY installations_insert_policy ON installations FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY installations_update_policy ON installations FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY installations_delete_policy ON installations FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── SUBSIDIES TABLE RLS ────────────────────────────────────────────────────
-ALTER TABLE subsidies ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY subsidies_read_policy ON subsidies FOR SELECT
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant', 'Engineer')
-  );
-
-CREATE POLICY subsidies_insert_policy ON subsidies FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  );
-
-CREATE POLICY subsidies_update_policy ON subsidies FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  );
-
-CREATE POLICY subsidies_delete_policy ON subsidies FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── PAYMENTS TABLE RLS ─────────────────────────────────────────────────────
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY payments_read_policy ON payments FOR SELECT
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  );
-
-CREATE POLICY payments_insert_policy ON payments FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  );
-
-CREATE POLICY payments_update_policy ON payments FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Accountant')
-  );
-
-CREATE POLICY payments_delete_policy ON payments FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── DOCUMENTS TABLE RLS ────────────────────────────────────────────────────
-ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY documents_read_policy ON documents FOR SELECT
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer', 'Accountant')
-  );
-
-CREATE POLICY documents_insert_policy ON documents FOR INSERT
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY documents_update_policy ON documents FOR UPDATE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  )
-  WITH CHECK (
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('Admin', 'Engineer')
-  );
-
-CREATE POLICY documents_delete_policy ON documents FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- ─── ACTIVITY_LOG TABLE RLS ────────────────────────────────────────────────
-ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
-
--- Admins can view all activity logs; others can only view their own
-CREATE POLICY activity_log_read_policy ON activity_log FOR SELECT
-  USING (
-    user_email = (SELECT email FROM users WHERE id = auth.uid()) OR
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
--- Only system can insert (via app), but we allow all authenticated users
-CREATE POLICY activity_log_insert_policy ON activity_log FOR INSERT
-  WITH CHECK (true);
-
-CREATE POLICY activity_log_delete_policy ON activity_log FOR DELETE
-  USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'Admin'
-  );
-
 -- ─── DEFAULT ADMIN USER ────────────────────────────────────────────────────
 -- Password: Admin@123 (bcrypt hash) — CHANGE THIS IMMEDIATELY after first login
 -- This is a bootstrap user to get into the system.
 INSERT INTO users (email, password, role, name, active)
 VALUES (
     'admin@solarcrm.com',
-    '$2a$12$LJ3TbIvO8uGYPq3KZe0v5OzHxwPnWqKPnFVMxJR5I1mZL3pcYV.Iy',
+    '$2a$12$qpVqjZjIPMq6uW0DX1dqUOyXJURfhBqjStTPtrGSr5mOb6oP4RkNa',
     'Admin',
     'System Admin',
     true

@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { uploadFileToR2 } from './r2';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -38,7 +37,7 @@ export async function signUpUser(email: string, password: string, metadata?: any
  */
 export async function signInUser(email: string, password: string) {
   try {
-
+    console.log('[Supabase] Attempting sign in for:', email);
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -49,7 +48,7 @@ export async function signInUser(email: string, password: string) {
       throw new Error(error.message);
     }
 
-
+    console.log('[Supabase] Sign in successful, session created');
     return data;
   } catch (err: any) {
     console.error('[Supabase] Sign in exception:', err.message);
@@ -64,13 +63,13 @@ export async function signInUser(email: string, password: string) {
  */
 export async function signOutUser() {
   try {
-
+    console.log('[Supabase] Signing out');
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('[Supabase] Sign out error:', error.message);
       throw new Error(error.message);
     }
-
+    console.log('[Supabase] Sign out successful');
   } catch (err: any) {
     console.error('[Supabase] Sign out exception:', err.message);
     throw err;
@@ -95,9 +94,9 @@ export async function getCurrentSession() {
   try {
     const { data } = await supabase.auth.getSession();
     if (data.session?.user) {
-
+      console.debug('[Supabase] Session found for:', data.session.user.email);
     } else {
-
+      console.debug('[Supabase] No session found');
     }
     return data.session;
   } catch (err: any) {
@@ -133,19 +132,32 @@ export async function updatePassword(newPassword: string) {
 }
 
 /**
- * Upload a file to Cloudflare R2 and return the public URL
- * Replaces previous Supabase Storage implementation
+ * Upload a file to Supabase Storage and return the public URL
  */
-export async function uploadFileToStorage(file: File, folderName: string = 'documents'): Promise<string> {
-  try {
-    console.log(`[R2] Uploading file: ${file.name} to folder: ${folderName}`);
-    const publicUrl = await uploadFileToR2(file, folderName);
-    console.log(`[R2] Upload successful: ${publicUrl}`);
-    return publicUrl;
-  } catch (error: any) {
-    console.error('[R2] Upload failed:', error.message);
+export async function uploadFileToStorage(file: File, folderName: string = 'general'): Promise<string> {
+  // Generate a unique file name to avoid collisions
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${folderName}/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+  // Upload to the 'documents' bucket
+  const { data, error } = await supabase.storage
+    .from('documents')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false
+    });
+
+  if (error) {
+    console.error('Supabase Storage Error:', error);
     throw new Error(`Failed to upload file: ${error.message}`);
   }
+
+  // Get the public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('documents')
+    .getPublicUrl(fileName);
+
+  return publicUrl;
 }
 
 export default supabase;

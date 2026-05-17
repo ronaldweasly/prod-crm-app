@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "backend:dev": "npm --prefix infrastructure/backend run dev",
+    "backend:build": "npm --prefix infrastructure/backend run build",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -13,7 +15,6 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@hookform/resolvers": "^5.2.2",
-    "@supabase/supabase-js": "^2.105.3",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",

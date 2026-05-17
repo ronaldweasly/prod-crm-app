@@ -14,7 +14,7 @@ async function getPresignedUrl(
   contentType: string,
   folder: string = 'documents'
 ): Promise<{ uploadUrl: string; publicUrl: string; fileKey: string }> {
-  const apiUrl = import.meta.env.VITE_API_URL || '/api';
+  const apiUrl = '/api';
   
   const response = await fetch(`${apiUrl}/uploads/presign`, {
     method: 'POST',
@@ -46,8 +46,6 @@ export async function uploadFileToR2(
   folderName: string = 'documents'
 ): Promise<string> {
   try {
-
-    
     const fileExt = file.name.split('.').pop() || 'bin';
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(2, 8);
@@ -73,7 +71,6 @@ export async function uploadFileToR2(
       throw new Error(`R2 upload failed: ${uploadResponse.statusText}`);
     }
 
-
     return publicUrl;
   } catch (error: any) {
     console.error('[R2] Upload error:', error.message);
@@ -85,7 +82,7 @@ export async function uploadFileToR2(
  * Get a download URL for a private file (with auth)
  */
 export async function getR2DownloadUrl(folder: string, fileId: string): Promise<string> {
-  const apiUrl = import.meta.env.VITE_API_URL || '/api';
+  const apiUrl = '/api';
   
   try {
     const response = await fetch(

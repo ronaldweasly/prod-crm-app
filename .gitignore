@@ -8,3 +8,11 @@ coverage/
 !.env.example
 
 .vercel
+
+# Database files
+infrastructure/backend/data/
+solarcrm.local.json
+*.local.json
+
+# SSL and Certs
+infrastructure/nginx/ssl/
