@@ -19,7 +19,7 @@ export default defineConfig(({mode}) => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      allowedHosts: ['superinclusive-uncoyly-jaida.ngrok-free.dev'],
+      allowedHosts: true,
       // Proxy /api/* requests to the backend so the frontend and API
       // are on the same origin (localhost:3000), avoiding CORS issues
       // with auth cookies (sameSite cookies).
