@@ -67,30 +67,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('No active session found');
       }
 
-      const users = await getSheetData<UserRow>(SHEET_NAMES.USERS).catch(err => {
-        console.warn('[Auth] Could not fetch users table from DB:', err.message);
-        return [];
-      });
-      
-      let matchedUser = users.find((u) => u.Email?.toLowerCase() === email.toLowerCase());
+      let matchedUser: any = null;
 
-      // If user is found in session but not in users table, create minimal entry from session data
+      // Only fetch users table if running in mock mode or test environment
+      const isMockOrTest = import.meta.env.VITE_USE_MOCK === 'true' || process.env.NODE_ENV === 'test';
+      if (isMockOrTest) {
+        const users = await getSheetData<UserRow>(SHEET_NAMES.USERS).catch(err => {
+          console.warn('[Auth] Could not fetch users table from DB:', err.message);
+          return [];
+        });
+        matchedUser = users.find((u) => u.Email?.toLowerCase() === email.toLowerCase());
+      }
+
+      // If user is found in session but not in users table (or in live database mode),
+      // we use the role and name from the backend session directly.
       if (!matchedUser) {
         const defaultRole: Role = (session.user.role as Role) || 'Sales Team';
         const defaultName = session.user.name || email.split('@')[0];
         
-        // Try to insert user into users table (non-blocking on failure)
-        try {
-          await appendRow(SHEET_NAMES.USERS, [
-            email,           // email
-            defaultRole,     // role
-            defaultName,     // name
-            'TRUE',          // active
-            '',              // password (managed by backend auth)
-          ]);
-          console.log('[Auth] Auto-registered user in DB:', email.toLowerCase());
-        } catch (insertErr: any) {
-          console.warn('[Auth] Could not auto-register user (may already exist):', insertErr.message);
+        // Try to insert user into users table in mock mode or test environment
+        if (isMockOrTest) {
+          try {
+            await appendRow(SHEET_NAMES.USERS, [
+              email,           // email
+              defaultRole,     // role
+              defaultName,     // name
+              'TRUE',          // active
+              '',              // password
+            ]);
+            console.log('[Auth] Auto-registered user in DB:', email.toLowerCase());
+          } catch (insertErr: any) {
+            console.warn('[Auth] Could not auto-register user (may already exist):', insertErr.message);
+          }
         }
 
         matchedUser = {
@@ -132,10 +140,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return authUser;
     } catch (err: any) {
       console.error('[Auth] User role loading failed:', err.message);
-      // Only sign out if the backend session itself is gone.
+      // Only sign out if the backend session itself is gone or the user is inactive.
       // Don't log out on rate-limit hits or transient network errors.
       const session = await getCurrentSession().catch(() => null);
-      if (!session?.user) {
+      const isInactive = err.message?.includes('inactive');
+      if (!session?.user || isInactive) {
         setError(err.message || 'Session expired');
         await signOutUser().catch(() => {});
         setUser(null);
@@ -143,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn('[Auth] Fetch error but session still valid — keeping user logged in');
         setError(null);
       }
-      return null;
+      throw err;
     } finally {
       isLoadingRoleRef.current = false;
     }
@@ -166,29 +175,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Verify session is still valid via /me endpoint
             const session = await getCurrentSession();
             
-            if (session?.user && session.user.email === cached.email) {
-              // Session is still valid, restore from cache
-              const users = await getSheetData<UserRow>(SHEET_NAMES.USERS).catch(() => []);
-              const matchedUser = users.find((u) => u.Email?.toLowerCase() === cached.email.toLowerCase());
-              
-              if (!matchedUser || matchedUser.Active === 'TRUE') {
-                const role = (matchedUser?.Role || cached.role) as Role;
-                const authUser: AuthUser = {
-                  id: cached.id,
-                  email: cached.email,
-                  name: cached.name,
-                  role,
-                  picture: cached.picture,
-                  provider: cached.provider,
-                };
-                userCacheRef.current.set(cached.email.toLowerCase(), authUser);
-                setUser(authUser);
-                setError(null);
-                if (mounted) setIsLoading(false);
-                return;
-              } else {
-                localStorage.removeItem('solar_crm_auth');
-              }
+            if (session?.user && session.user.email.toLowerCase() === cached.email.toLowerCase()) {
+              // Session is still valid, restore from cache/session
+              const role = (session.user.role || cached.role) as Role;
+              const authUser: AuthUser = {
+                id: session.user.id || cached.id,
+                email: session.user.email,
+                name: session.user.name || cached.name,
+                role,
+                picture: cached.picture,
+                provider: cached.provider,
+              };
+              userCacheRef.current.set(authUser.email.toLowerCase(), authUser);
+              setUser(authUser);
+              setError(null);
+              if (mounted) setIsLoading(false);
+              return;
             } else {
               // Session expired or user mismatch
               localStorage.removeItem('solar_crm_auth');
@@ -261,6 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }));
 
       // User state is already set by loadUserRole
+      setIsLoading(false);
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed';
       console.error('Email login failed:', err);

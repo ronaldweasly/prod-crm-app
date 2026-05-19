@@ -8,9 +8,10 @@
 // Latest snapshot is also stored at: backups/db/latest.json.gz
 // =============================================================================
 
-import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
-import { gzipSync } from 'zlib';
-import { getDb } from './localStore.js';
+import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { gzipSync, gunzipSync } from 'zlib';
+import { getDb, mutateDb } from './localStore.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const BACKUP_TABLES = [
   'clients',
@@ -181,4 +182,108 @@ export function startR2BackupScheduler(): void {
 
   // Then every hour
   setInterval(() => uploadBackupToR2(), 60 * 60 * 1000);
+}
+
+export interface R2BackupInfo {
+  key: string;
+  lastModified: string;
+  size: number;
+  label: string;
+}
+
+export async function listR2Backups(): Promise<R2BackupInfo[]> {
+  if (!r2) {
+    r2 = createR2Client();
+    if (!r2) return [];
+  }
+
+  const listResult = await r2.send(new ListObjectsV2Command({
+    Bucket: BUCKET,
+    Prefix: BACKUP_PREFIX,
+    MaxKeys: 1000,
+  }));
+
+  const objects = listResult.Contents || [];
+  return objects
+    .filter(obj => obj.Key && obj.Key !== `${BACKUP_PREFIX}latest.json.gz`)
+    .map(obj => {
+      const key = obj.Key!;
+      const parts = key.split('/');
+      const datePart = parts[2] || '';
+      const timePart = (parts[3] || '').replace('.json.gz', '').replace('-', ':');
+      const label = `Cloud Backup (${datePart} ${timePart})`;
+
+      return {
+        key,
+        lastModified: obj.LastModified ? obj.LastModified.toISOString() : new Date().toISOString(),
+        size: obj.Size || 0,
+        label,
+      };
+    })
+    .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
+}
+
+export async function restoreFromR2Backup(key: string, userEmail: string): Promise<boolean> {
+  if (!r2) {
+    r2 = createR2Client();
+    if (!r2) throw new Error('R2 not configured');
+  }
+
+  const response = await r2.send(new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+  }));
+
+  if (!response.Body) {
+    throw new Error('R2 backup file is empty');
+  }
+
+  const bytes = await response.Body.transformToByteArray();
+  const decompressed = gunzipSync(Buffer.from(bytes));
+  const backup = JSON.parse(decompressed.toString('utf-8'));
+
+  if (!backup.data) {
+    throw new Error('Invalid backup format in R2');
+  }
+
+  await mutateDb((db) => {
+    for (const table of BACKUP_TABLES) {
+      if (backup.data[table]) {
+        (db as any)[table] = backup.data[table].map((row: any) => ({ ...row }));
+      }
+    }
+    db.activity_log.push({
+      id: uuidv4(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      user_email: userEmail,
+      action: 'RESTORE_R2',
+      entity_type: 'backup_r2',
+      entity_id: key,
+      details: { key },
+    });
+    return true;
+  });
+
+  return true;
+}
+
+export async function downloadR2Backup(key: string): Promise<string> {
+  if (!r2) {
+    r2 = createR2Client();
+    if (!r2) throw new Error('R2 not configured');
+  }
+
+  const response = await r2.send(new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+  }));
+
+  if (!response.Body) {
+    throw new Error('R2 backup file is empty');
+  }
+
+  const bytes = await response.Body.transformToByteArray();
+  const decompressed = gunzipSync(Buffer.from(bytes));
+  return decompressed.toString('utf-8');
 }

@@ -33,10 +33,11 @@ export async function generateProposalPdf(data: ProposalData): Promise<Blob> {
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const amber: [number, number, number] = [245, 158, 11];
-  const logo = await loadLogoDataUrl('/image.png');
-
-  if (logo) {
-    doc.addImage(logo, 'PNG', 14, 12, 20, 20);
+  if (data.useDoctorElectricLogo !== false) {
+    const logo = await loadLogoDataUrl('/image.png');
+    if (logo) {
+      doc.addImage(logo, 'PNG', 14, 12, 20, 20);
+    }
   }
 
   doc.setFontSize(20);

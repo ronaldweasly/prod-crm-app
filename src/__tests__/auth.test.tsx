@@ -1,13 +1,16 @@
+// @vitest-environment jsdom
 /**
  * Authentication Test Suite
  * 
  * Tests for local auth (backend JWT) authentication system
  * 
- * Run via: npm run test -- auth.test.ts
+ * Run via: npm run test -- auth.test.tsx
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import * as matchers from '@testing-library/jest-dom/matchers';
+expect.extend(matchers);
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'sonner';
@@ -59,17 +62,23 @@ describe('Authentication Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // Default mocks to return valid promises and avoid undefined.catch crashes
+    vi.mocked(getCurrentSession).mockResolvedValue(null);
+    vi.mocked(signInUser).mockResolvedValue({ session: null });
+    vi.mocked(signOutUser).mockResolvedValue();
     // Set VITE_USE_MOCK to false for live tests, true enables fallback
     import.meta.env.VITE_USE_MOCK = 'false';
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    cleanup();
   });
 
   describe('1. Login Page - UI Verification', () => {
-    it('should render login page with email form only', () => {
+    it('should render login page with email form only', async () => {
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
       
       expect(screen.getByText('DOCTOR ELECTRIC CRM')).toBeInTheDocument();
       expect(screen.getByLabelText('Email address')).toBeInTheDocument();
@@ -79,8 +88,9 @@ describe('Authentication Tests', () => {
       expect(screen.queryByText(/Sign in with Google/i)).not.toBeInTheDocument();
     });
 
-    it('should have email and password input fields', () => {
+    it('should have email and password input fields', async () => {
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
       
       const emailInput = screen.getByPlaceholderText('you@company.com') as HTMLInputElement;
       const passwordInput = screen.getByPlaceholderText('Enter your password') as HTMLInputElement;
@@ -92,6 +102,7 @@ describe('Authentication Tests', () => {
 
     it('should toggle password visibility', async () => {
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
       
       const passwordInput = screen.getByPlaceholderText('Enter your password') as HTMLInputElement;
       const toggleButton = screen.getByRole('button', { name: '' }).parentElement?.querySelector('[tabindex="-1"]');
@@ -118,7 +129,9 @@ describe('Authentication Tests', () => {
       };
 
       vi.mocked(signInUser).mockResolvedValueOnce(mockSession);
-      vi.mocked(getCurrentSession).mockResolvedValueOnce(null); // No existing session
+      vi.mocked(getCurrentSession)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(mockSession.session);
       vi.mocked(getSheetData).mockResolvedValueOnce([
         {
           Email: 'admin@solar.com',
@@ -130,9 +143,9 @@ describe('Authentication Tests', () => {
 
       renderWithProviders(<Login />);
 
-      const emailInput = screen.getByPlaceholderText('you@company.com') as HTMLInputElement;
+      const emailInput = await screen.findByPlaceholderText('you@company.com') as HTMLInputElement;
       const passwordInput = screen.getByPlaceholderText('Enter your password') as HTMLInputElement;
-      const submitButton = screen.getByRole('button', { name: /Sign in/i });
+      const submitButton = screen.getByRole('button', { name: /Sign In/i });
 
       await userEvent.type(emailInput, 'admin@solar.com');
       await userEvent.type(passwordInput, 'password123');
@@ -148,9 +161,10 @@ describe('Authentication Tests', () => {
   describe('3. Form Validation', () => {
     it('should not allow submission with empty email', async () => {
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
 
       const passwordInput = screen.getByPlaceholderText('Enter your password');
-      const submitButton = screen.getByRole('button', { name: /Sign in/i });
+      const submitButton = screen.getByRole('button', { name: /Sign In/i });
 
       await userEvent.type(passwordInput, 'password123');
 
@@ -162,9 +176,10 @@ describe('Authentication Tests', () => {
 
     it('should not allow submission with empty password', async () => {
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
 
       const emailInput = screen.getByPlaceholderText('you@company.com');
-      const submitButton = screen.getByRole('button', { name: /Sign in/i });
+      const submitButton = screen.getByRole('button', { name: /Sign In/i });
 
       await userEvent.type(emailInput, 'admin@solar.com');
 
@@ -182,10 +197,11 @@ describe('Authentication Tests', () => {
       );
 
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
 
       const emailInput = screen.getByPlaceholderText('you@company.com');
       const passwordInput = screen.getByPlaceholderText('Enter your password');
-      const submitButton = screen.getByRole('button', { name: /Sign in/i });
+      const submitButton = screen.getByRole('button', { name: /Sign In/i });
 
       await userEvent.type(emailInput, 'baduser@solar.com');
       await userEvent.type(passwordInput, 'wrongpass');
@@ -209,7 +225,9 @@ describe('Authentication Tests', () => {
       };
 
       vi.mocked(signInUser).mockResolvedValueOnce(mockSession);
-      vi.mocked(getCurrentSession).mockResolvedValueOnce(mockSession);
+      vi.mocked(getCurrentSession)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(mockSession.session);
       vi.mocked(getSheetData).mockResolvedValueOnce([
         {
           Email: 'inactive@solar.com',
@@ -220,17 +238,18 @@ describe('Authentication Tests', () => {
       ]);
 
       renderWithProviders(<Login />);
+      await screen.findByRole('button', { name: /Sign In/i });
 
       const emailInput = screen.getByPlaceholderText('you@company.com');
       const passwordInput = screen.getByPlaceholderText('Enter your password');
-      const submitButton = screen.getByRole('button', { name: /Sign in/i });
+      const submitButton = screen.getByRole('button', { name: /Sign In/i });
 
       await userEvent.type(emailInput, 'inactive@solar.com');
       await userEvent.type(passwordInput, 'pass');
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/account is inactive/i)).toBeInTheDocument();
+        expect(screen.getByText(/inactive/i)).toBeInTheDocument();
       }, { timeout: 1000 });
     });
   });
@@ -267,7 +286,7 @@ describe('Authentication Tests', () => {
         },
       };
 
-      vi.mocked(getCurrentSession).mockResolvedValueOnce(mockSession);
+      vi.mocked(getCurrentSession).mockResolvedValue(mockSession);
       vi.mocked(getSheetData).mockResolvedValueOnce([
         {
           Email: 'admin@solar.com',

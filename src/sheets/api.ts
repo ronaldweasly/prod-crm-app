@@ -90,6 +90,42 @@ async function apiFetch<T = any>(
   return response.json();
 }
 
+// Date column normalization helpers
+const DATE_COLUMNS = [
+  'created_date',
+  'survey_date',
+  'validity_date',
+  'start_date',
+  'end_date',
+  'applied_date',
+  'approval_date',
+  'due_date',
+];
+
+function convertDdMmYyyyToYyyyMmDd(val: string): string {
+  if (!val) return '';
+  const trimmed = val.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    const [, d, m, y] = match;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return trimmed;
+}
+
+function convertYyyyMmDdToDdMmYyyy(val: string): string {
+  if (!val) return '';
+  const trimmed = val.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, y, m, d] = match;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) return trimmed;
+  return trimmed;
+}
+
 // ─── Map DB snake_case row → sheet-style object ──────────────────────────────
 
 function mapDbRowToSheet(sheetName: string, dbRow: any, rowIndex: number): any {
@@ -108,7 +144,13 @@ function mapDbRowToSheet(sheetName: string, dbRow: any, rowIndex: number): any {
     if (val === null || val === undefined) val = '';
     if (typeof val === 'boolean') val = val ? 'TRUE' : 'FALSE';
     if (typeof val === 'number') val = String(val);
-    item[header] = String(val);
+    
+    let strVal = String(val);
+    if (DATE_COLUMNS.includes(dbCol) && strVal) {
+      strVal = convertYyyyMmDdToDdMmYyyy(strVal);
+    }
+    
+    item[header] = strVal;
   });
   return item;
 }
@@ -130,6 +172,10 @@ function mapSheetToDbRow(sheetName: string, values: any[]): Record<string, any> 
     }
     if (col === 'active') {
       obj[col] = val === 'TRUE' || val === true;
+      return;
+    }
+    if (DATE_COLUMNS.includes(col) && typeof val === 'string') {
+      obj[col] = convertDdMmYyyyToYyyyMmDd(val) || null;
       return;
     }
     obj[col] = val;

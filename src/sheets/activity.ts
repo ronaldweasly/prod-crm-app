@@ -44,7 +44,17 @@ export function logActivity(activity: Omit<ActivityLog, 'id' | 'timestamp'>): Ac
     log.userAgent = navigator.userAgent;
   }
 
-  saveActivityLog(log);
+  // Persist to central backend audit trail
+  fetch('/api/activity-logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(activity),
+    credentials: 'include',
+  }).catch((err) => {
+    console.error('Failed to save activity log to backend, saving locally:', err);
+    saveActivityLog(log);
+  });
+
   return log;
 }
 
@@ -95,7 +105,7 @@ export function logActivityFailure(
 }
 
 /**
- * Save activity log to storage
+ * Save activity log to storage (fallback only)
  */
 function saveActivityLog(activity: ActivityLog) {
   try {

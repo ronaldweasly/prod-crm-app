@@ -1,11 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { query } from '../db/pool.js';
 import {
-  getTable,
-  getDb,
   insertRow,
   logActivity,
-  mutateDb,
   updateById,
   upsertByClientId,
 } from '../db/localStore.js';
@@ -58,6 +56,22 @@ function numberOrNull(value: any) {
   return Number.isFinite(next) ? next : null;
 }
 
+function parseDateToYyyyMmDd(val: any): string | null {
+  if (!val) return null;
+  const str = String(val).trim();
+  // Check if YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.slice(0, 10);
+  }
+  // Check if DD/MM/YYYY
+  const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) {
+    const [, d, m, y] = match;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return null;
+}
+
 function normalizeClient(body: any) {
   return {
     id: body.id || uuidv4(),
@@ -67,42 +81,36 @@ function normalizeClient(body: any) {
     roof_type: body.roof_type || '',
     battery_type: body.battery_type || '',
     system_size_kw: numberOrNull(body.system_size_kw),
-    created_date: body.created_date || new Date().toISOString().slice(0, 10),
+    created_date: parseDateToYyyyMmDd(body.created_date) || new Date().toISOString().slice(0, 10),
     assigned_to: body.assigned_to || '',
   };
 }
 
 clientsRouter.get('/stats/dashboard', async (_req: Request, res: Response) => {
   try {
-    const [clients, workflows, payments] = await Promise.all([
-      getTable<any>('clients'),
-      getTable<any>('workflow_status'),
-      getTable<any>('payments'),
+    const [clientsCountRes, stagesRes, recentClientsRes, paymentsRes] = await Promise.all([
+      query('SELECT COUNT(*) FROM clients'),
+      query('SELECT stage, COUNT(*) as count FROM workflow_status GROUP BY stage'),
+      query('SELECT * FROM clients ORDER BY created_date DESC, created_at DESC LIMIT 5'),
+      query('SELECT COALESCE(SUM(total_amount), 0) as total_revenue, COALESCE(SUM(paid_amount), 0) as collected, COALESCE(SUM(pending_amount), 0) as pending FROM payments'),
     ]);
 
-    const stageMap = workflows.reduce<Record<string, number>>((acc, row) => {
-      const stage = row.stage || 'Lead';
-      acc[stage] = (acc[stage] || 0) + 1;
-      return acc;
-    }, {});
+    const totalClients = parseInt(clientsCountRes.rows[0].count, 10);
+    const stageDistribution = stagesRes.rows.map((row: any) => ({
+      stage: row.stage || 'Lead',
+      count: parseInt(row.count, 10),
+    }));
 
-    const paymentSummary = payments.reduce(
-      (acc, row) => {
-        acc.total_revenue += Number(row.total_amount || 0);
-        acc.collected += Number(row.paid_amount || 0);
-        acc.pending += Number(row.pending_amount || 0);
-        return acc;
-      },
-      { total_revenue: 0, collected: 0, pending: 0 }
-    );
+    const paymentSummary = {
+      total_revenue: parseFloat(paymentsRes.rows[0].total_revenue),
+      collected: parseFloat(paymentsRes.rows[0].collected),
+      pending: parseFloat(paymentsRes.rows[0].pending),
+    };
 
     res.json({
-      totalClients: clients.length,
-      stageDistribution: Object.entries(stageMap).map(([stage, count]) => ({ stage, count })),
-      recentClients: clients
-        .slice()
-        .sort((a, b) => String(b.created_date || '').localeCompare(String(a.created_date || '')))
-        .slice(0, 5),
+      totalClients,
+      stageDistribution,
+      recentClients: recentClientsRes.rows,
       paymentSummary,
     });
   } catch (err) {
@@ -115,18 +123,23 @@ clientsRouter.get('/', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 9999);
     const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
-    const clients = (await getTable<any>('clients')).sort((a, b) =>
-      String(b.created_date || '').localeCompare(String(a.created_date || ''))
+
+    const countRes = await query('SELECT COUNT(*) FROM clients');
+    const total = parseInt(countRes.rows[0].count, 10);
+
+    const clientsRes = await query(
+      'SELECT * FROM clients ORDER BY created_date DESC, created_at DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
     );
 
     res.json({
-      data: clients.slice(offset, offset + limit),
+      data: clientsRes.rows,
       pagination: {
-        total: clients.length,
+        total,
         limit,
         offset,
-        hasMore: offset + limit < clients.length,
-        pages: Math.ceil(clients.length / limit),
+        hasMore: offset + limit < total,
+        pages: Math.ceil(total / limit),
       },
     });
   } catch (err) {
@@ -142,8 +155,8 @@ clientsRouter.get('/relations/:table', authorize('Admin', 'Sales Team', 'Enginee
       res.status(400).json({ error: 'Invalid table' });
       return;
     }
-    const data = await getTable<any>(table as any);
-    res.json(data);
+    const result = await query(`SELECT * FROM ${table}`);
+    res.json(result.rows);
   } catch (err) {
     console.error(`Error fetching relation ${table}:`, err);
     res.status(500).json({ error: `Failed to fetch relation ${table}` });
@@ -153,9 +166,28 @@ clientsRouter.get('/relations/:table', authorize('Admin', 'Sales Team', 'Enginee
 clientsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const db = await getDb();
-    const client = db.clients.find((row) => row.id === id);
+    
+    const [
+      clientRes,
+      workflowRes,
+      surveyRes,
+      quotationRes,
+      installationRes,
+      subsidyRes,
+      paymentRes,
+      documentsRes
+    ] = await Promise.all([
+      query('SELECT * FROM clients WHERE id = $1', [id]),
+      query('SELECT * FROM workflow_status WHERE client_id = $1', [id]),
+      query('SELECT * FROM surveys WHERE client_id = $1', [id]),
+      query('SELECT * FROM quotations WHERE client_id = $1', [id]),
+      query('SELECT * FROM installations WHERE client_id = $1', [id]),
+      query('SELECT * FROM subsidies WHERE client_id = $1', [id]),
+      query('SELECT * FROM payments WHERE client_id = $1', [id]),
+      query('SELECT * FROM documents WHERE client_id = $1', [id]),
+    ]);
 
+    const client = clientRes.rows[0];
     if (!client) {
       res.status(404).json({ error: 'Client not found' });
       return;
@@ -163,13 +195,13 @@ clientsRouter.get('/:id', async (req: Request, res: Response) => {
 
     res.json({
       client,
-      workflow: db.workflow_status.find((row) => row.client_id === id) || null,
-      survey: db.surveys.find((row) => row.client_id === id) || null,
-      quotation: db.quotations.find((row) => row.client_id === id) || null,
-      installation: db.installations.find((row) => row.client_id === id) || null,
-      subsidy: db.subsidies.find((row) => row.client_id === id) || null,
-      payment: db.payments.find((row) => row.client_id === id) || null,
-      documents: db.documents.find((row) => row.client_id === id) || null,
+      workflow: workflowRes.rows[0] || null,
+      survey: surveyRes.rows[0] || null,
+      quotation: quotationRes.rows[0] || null,
+      installation: installationRes.rows[0] || null,
+      subsidy: subsidyRes.rows[0] || null,
+      payment: paymentRes.rows[0] || null,
+      documents: documentsRes.rows[0] || null,
     });
   } catch (err) {
     console.error('Error fetching client:', err);
@@ -219,6 +251,7 @@ clientsRouter.put('/:id', authorize('Admin', 'Sales Team'), async (req: Request,
       action: 'UPDATE',
       entity_type: 'client',
       entity_id: id,
+      details: { name: client.name },
     });
 
     res.json(client);
@@ -270,6 +303,9 @@ for (const [table, config] of Object.entries(upsertConfigs)) {
         for (const column of ['amount', 'total_amount', 'paid_amount', 'pending_amount', 'completion_percentage']) {
           if (column in body) body[column] = numberOrNull(body[column]);
         }
+        for (const column of ['survey_date', 'validity_date', 'start_date', 'end_date', 'applied_date', 'approval_date', 'due_date']) {
+          if (column in body) body[column] = parseDateToYyyyMmDd(body[column]);
+        }
         const row = await upsertByClientId(table as any, req.params.id, body);
         res.json(row);
       } catch (err) {
@@ -283,16 +319,14 @@ for (const [table, config] of Object.entries(upsertConfigs)) {
 clientsRouter.delete('/:id', authorize('Admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const deleted = await mutateDb((db) => {
-      const clientExists = db.clients.some((row) => row.id === id);
-      if (!clientExists) return false;
+    
+    // Fetch client name first before deleting to preserve it in logs
+    const clientRes = await query('SELECT name FROM clients WHERE id = $1', [id]);
+    const clientName = clientRes.rows[0]?.name || '';
 
-      db.clients = db.clients.filter((row) => row.id !== id);
-      for (const table of relatedTables) {
-        (db[table] as any[]) = (db[table] as any[]).filter((row) => row.client_id !== id);
-      }
-      return true;
-    });
+    // Direct database DELETE. Cascade triggers automatic child table cleanups.
+    const deleteRes = await query('DELETE FROM clients WHERE id = $1 RETURNING id', [id]);
+    const deleted = deleteRes.rowCount && deleteRes.rowCount > 0;
 
     if (!deleted) {
       res.status(404).json({ error: 'Client not found' });
@@ -304,7 +338,7 @@ clientsRouter.delete('/:id', authorize('Admin'), async (req: Request, res: Respo
       action: 'DELETE',
       entity_type: 'client',
       entity_id: id,
-      details: { cascading: true },
+      details: { name: clientName, cascading: true },
     });
 
     res.json({ message: 'Client deleted successfully', id });

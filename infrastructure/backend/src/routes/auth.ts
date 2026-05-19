@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { getTable, insertRow, logActivity, mutateDb, updateById } from '../db/localStore.js';
+import { query } from '../db/pool.js';
+import { insertRow, logActivity, updateById } from '../db/localStore.js';
 import { authenticate } from '../middleware/auth.js';
 
 export const authRouter = Router();
@@ -46,8 +47,8 @@ function setSessionCookie(res: Response, token: string) {
 authRouter.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
-    const users = await getTable<any>('users');
-    const user = users.find((item) => item.email === email.toLowerCase());
+    const userRes = await query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+    const user = userRes.rows[0];
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       res.status(401).json({ error: 'Invalid email or password' });
@@ -101,9 +102,9 @@ authRouter.post('/register', authenticate, async (req: Request, res: Response) =
 
     const { email, password, name, role } = registerSchema.parse(req.body);
     const normalizedEmail = email.toLowerCase();
-    const users = await getTable<any>('users');
 
-    if (users.some((user) => user.email === normalizedEmail)) {
+    const userRes = await query('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
+    if (userRes.rowCount && userRes.rowCount > 0) {
       res.status(409).json({ error: 'User with this email already exists' });
       return;
     }
@@ -141,8 +142,8 @@ authRouter.get('/users', authenticate, async (req: Request, res: Response) => {
     return;
   }
 
-  const users = await getTable<any>('users');
-  res.json(users.map(publicUser));
+  const usersRes = await query('SELECT * FROM users ORDER BY name');
+  res.json(usersRes.rows.map(publicUser));
 });
 
 authRouter.patch('/users', authenticate, async (req: Request, res: Response) => {
@@ -160,24 +161,25 @@ authRouter.patch('/users', authenticate, async (req: Request, res: Response) => 
 
   try {
     const body = schema.parse(req.body);
-    const updated = await mutateDb((db) => {
-      const user = db.users.find((item) => item.email === body.email.toLowerCase());
-      if (!user) return null;
-      Object.assign(user, {
-        role: body.role ?? user.role,
-        name: body.name ?? user.name,
-        active: body.active ?? user.active,
-        updated_at: new Date().toISOString(),
-      });
-      return publicUser(user);
-    });
+    const selectRes = await query('SELECT * FROM users WHERE email = $1', [body.email.toLowerCase()]);
+    const user = selectRes.rows[0];
 
-    if (!updated) {
+    if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
 
-    res.json({ user: updated });
+    const role = body.role ?? user.role;
+    const name = body.name ?? user.name;
+    const active = body.active ?? user.active;
+
+    const updateRes = await query(
+      'UPDATE users SET role = $1, name = $2, active = $3, updated_at = NOW() WHERE email = $4 RETURNING *',
+      [role, name, active, body.email.toLowerCase()]
+    );
+    const updated = updateRes.rows[0];
+
+    res.json({ user: publicUser(updated) });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: 'Invalid input', details: err.errors });
@@ -202,12 +204,8 @@ authRouter.delete('/users/:email', authenticate, async (req: Request, res: Respo
   }
 
   try {
-    const deletedUser = await mutateDb((db) => {
-      const index = db.users.findIndex((u) => u.email.toLowerCase() === targetEmail);
-      if (index === -1) return null;
-      const [removed] = db.users.splice(index, 1);
-      return removed;
-    });
+    const deleteRes = await query('DELETE FROM users WHERE email = $1 RETURNING *', [targetEmail]);
+    const deletedUser = deleteRes.rows[0];
 
     if (!deletedUser) {
       res.status(404).json({ error: 'User not found' });
@@ -237,8 +235,8 @@ authRouter.post('/change-password', authenticate, async (req: Request, res: Resp
     });
 
     const { currentPassword, newPassword } = schema.parse(req.body);
-    const users = await getTable<any>('users');
-    const user = users.find((item) => item.id === req.user!.id);
+    const userRes = await query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
+    const user = userRes.rows[0];
 
     if (!user || !(await bcrypt.compare(currentPassword, user.password))) {
       res.status(401).json({ error: 'Current password is incorrect' });

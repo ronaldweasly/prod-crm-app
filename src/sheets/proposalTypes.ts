@@ -32,4 +32,5 @@ export interface ProposalData {
   warrantyYearsInverter: number;
   warrantyYearsStructure: number;
   notes?: string;
+  useDoctorElectricLogo?: boolean;
 }

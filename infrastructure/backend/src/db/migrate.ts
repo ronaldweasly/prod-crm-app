@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS clients (
     phone           VARCHAR(20),
     address         TEXT,
     roof_type       VARCHAR(100),
+    battery_type    VARCHAR(100),
     system_size_kw  DECIMAL(10,2),
     created_date    DATE NOT NULL DEFAULT CURRENT_DATE,
     assigned_to     VARCHAR(255),
@@ -114,11 +115,30 @@ CREATE TABLE IF NOT EXISTS documents (
     id                          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     client_id                   VARCHAR(20) UNIQUE NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     aadhaar_link                TEXT,
+    aadhaar_number              VARCHAR(50),
     electricity_bill_link       TEXT,
+    bill_number                 VARCHAR(50),
+    pan_card_link               TEXT,
+    bank_details                TEXT,
+    additional_doc_1_link       TEXT,
+    additional_doc_2_link       TEXT,
+    additional_doc_3_link       TEXT,
     quotation_doc_link          TEXT,
     installation_photos_link    TEXT,
     subsidy_docs_link           TEXT
 );
+
+-- ─── SCHEMA UPGRADES (RUN ON COMPONENT STARTUP) ──────────────────────────────
+-- In case the database was already created before, apply columns if they do not exist.
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS battery_type VARCHAR(100);
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS aadhaar_number VARCHAR(50);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS bill_number VARCHAR(50);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS pan_card_link TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS bank_details TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS additional_doc_1_link TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS additional_doc_2_link TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS additional_doc_3_link TEXT;
 
 -- ─── BACKUP SNAPSHOTS ───────────────────────────────────────────────────────
 -- WHY: Stores full DB snapshots for rollback on data changes.
@@ -194,7 +214,7 @@ VALUES (
 ) ON CONFLICT (email) DO NOTHING;
 `;
 
-async function migrate() {
+export async function runMigrations() {
   console.log('🔄 Running database migrations...');
   const client = await pool.connect();
 
@@ -209,8 +229,23 @@ async function migrate() {
     throw error;
   } finally {
     client.release();
-    await pool.end();
   }
 }
 
-migrate().catch(() => process.exit(1));
+const isDirectRun = process.argv[1] && (
+  process.argv[1].endsWith('migrate.ts') ||
+  process.argv[1].endsWith('migrate.js') ||
+  process.argv[1].includes('db/migrate')
+);
+
+if (isDirectRun) {
+  runMigrations()
+    .then(() => {
+      console.log('Migration finished, closing pool.');
+      return pool.end();
+    })
+    .catch((err) => {
+      console.error('Unhandled migration error:', err);
+      process.exit(1);
+    });
+}

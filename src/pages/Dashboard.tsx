@@ -70,7 +70,18 @@ export default function Dashboard() {
           count: activeCurrentStages.filter(w => w.Stage === stage).length
         }));
 
-        setData({ metrics, recentActivity, pipelineData, workflow: activeCurrentStages, subsidies, payments, clients, clientMap });
+        let liveUpdates = [];
+        try {
+          const res = await fetch('/api/activity-logs?limit=4');
+          if (res.ok) {
+            const result = await res.json();
+            liveUpdates = result.logs || [];
+          }
+        } catch (e) {
+          console.error("Failed to fetch live updates", e);
+        }
+
+        setData({ metrics, recentActivity, pipelineData, workflow: activeCurrentStages, subsidies, payments, clients, clientMap, liveUpdates });
       } catch (err) {
         console.error("Dashboard data load error", err);
       } finally {
@@ -433,7 +444,7 @@ export default function Dashboard() {
 
   if (!data) return <div className="text-slate-600 font-medium p-8 text-center bg-white rounded-xl shadow-sm border border-slate-100">Failed to load data.</div>;
 
-  const { metrics, recentActivity, pipelineData } = data;
+  const { metrics, recentActivity, pipelineData, liveUpdates } = data;
   const maxPipelineCount = Math.max(...pipelineData.map((p: any) => p.count), 1);
 
   // Additional small chart data
@@ -445,14 +456,61 @@ export default function Dashboard() {
       const key = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
       days[key] = 0;
     }
-    data.workflow.forEach((w: any) => {
-      const t = new Date(w['Updated At']).getTime();
-      if (now - t <= 7 * 24 * 60 * 60 * 1000) {
-        const key = new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    data.clients.forEach((c: any) => {
+      let dateVal: Date;
+      if (c.created_date) {
+        dateVal = new Date(c.created_date);
+      } else if (c.created_at) {
+        dateVal = new Date(c.created_at);
+      } else {
+        return;
+      }
+      const t = dateVal.getTime();
+      if (!isNaN(t) && now - t <= 7 * 24 * 60 * 60 * 1000) {
+        const key = dateVal.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
         if (days[key] !== undefined) days[key]++;
       }
     });
     return Object.entries(days).map(([name, value]) => ({ name, value }));
+  })();
+
+  const projectAnalytics = (() => {
+    const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    const now = new Date();
+    
+    // Start of the week (Sunday)
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - now.getDay());
+    sunday.setHours(0, 0, 0, 0);
+
+    const saturday = new Date(sunday);
+    saturday.setDate(sunday.getDate() + 6);
+    saturday.setHours(23, 59, 59, 999);
+
+    data.workflow.forEach((w: any) => {
+      const date = new Date(w['Updated At']);
+      if (!isNaN(date.getTime()) && date >= sunday && date <= saturday) {
+        const dayIndex = date.getDay(); // 0 = Sunday, ..., 6 = Saturday
+        counts[dayIndex]++;
+      }
+    });
+
+    const maxCount = Math.max(...counts, 1);
+    const todayIndex = now.getDay();
+    const hasAnyCount = counts.some(c => c > 0);
+
+    return days.map((d, i) => {
+      const count = counts[i];
+      const height = hasAnyCount ? Math.round((count / maxCount) * 64) + 10 : 10;
+      const isAccent = hasAnyCount ? (count === maxCount) : (i === todayIndex);
+      return {
+        day: d,
+        count,
+        height,
+        isAccent,
+      };
+    });
   })();
 
   const subsidyBreakdown = (() => {
@@ -550,14 +608,11 @@ export default function Dashboard() {
                 <div className="mt-5 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
                   <p className="text-sm font-semibold text-slate-700 mb-3">Project Analytics</p>
                   <div className="flex items-end gap-3 h-28">
-                    {/* Render seven pill-style bars to mimic the visual */}
-                    {['S','M','T','W','T','F','S'].map((d, i) => {
-                      const height = [28,36,48,74,48,30,22][i] || 30;
-                      const isAccent = i === 3; // mid-week accent
+                    {projectAnalytics.map((item, i) => {
                       return (
-                        <div key={d} className="flex flex-col items-center gap-2 w-10">
-                          <div className={`w-full rounded-full transition-all`} style={{height: `${height}px`, background: isAccent ? COLORS[0] : '#f1f5f9', boxShadow: isAccent ? '0 6px 18px rgba(11,95,255,0.18)' : 'none'}} />
-                          <div className="text-[11px] text-slate-500">{d}</div>
+                        <div key={i} className="flex flex-col items-center gap-2 w-10" title={`${item.count} updates`}>
+                          <div className={`w-full rounded-full transition-all`} style={{height: `${item.height}px`, background: item.isAccent ? COLORS[0] : '#f1f5f9', boxShadow: item.isAccent ? '0 6px 18px rgba(11,95,255,0.18)' : 'none'}} />
+                          <div className="text-[11px] text-slate-500">{item.day}</div>
                         </div>
                       );
                     })}
@@ -641,12 +696,39 @@ export default function Dashboard() {
                     <p className="text-sm font-semibold text-slate-700">Live Updates</p>
                     <div className="text-[11px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-semibold">Live</div>
                   </div>
-                  <div className="mt-4 p-6 bg-slate-50 rounded-lg text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <Zap className="w-6 h-6 text-emerald-500" />
-                    </div>
-                    <p className="text-sm text-slate-600 mt-3">No updates yet</p>
-                    <p className="text-xs text-slate-400 mt-1">Pipeline updates will appear here in real time.</p>
+                  <div className="mt-3 space-y-3">
+                    {liveUpdates && liveUpdates.length > 0 ? (
+                      liveUpdates.map((log: any, i: number) => {
+                        const date = new Date(log.timestamp);
+                        const timeStr = isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const actionColors: Record<string, string> = {
+                          CREATE: 'text-blue-600 bg-blue-50',
+                          UPDATE: 'text-amber-600 bg-amber-50',
+                          DELETE: 'text-rose-600 bg-rose-50',
+                          LOGIN: 'text-emerald-600 bg-emerald-50',
+                        };
+                        const colorClass = actionColors[log.action] || 'text-slate-600 bg-slate-50';
+                        return (
+                          <div key={i} className="flex items-start gap-2.5 text-xs text-slate-600 border-b border-slate-50 pb-2 last:border-0 last:pb-0">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase shrink-0 ${colorClass}`}>
+                              {log.action}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <span className="font-bold text-slate-800 block truncate">{log.recordName || log.sheet || 'System'}</span>
+                              <span className="text-slate-400 text-[10px] block mt-0.5">by {log.userEmail.split('@')[0]} at {timeStr}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-6 bg-slate-50 rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-3">
+                          <Zap className="w-6 h-6 text-emerald-500" />
+                        </div>
+                        <p className="text-sm text-slate-600 mt-3">No updates yet</p>
+                        <p className="text-xs text-slate-400 mt-1">Pipeline updates will appear here in real time.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

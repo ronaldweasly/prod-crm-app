@@ -8,8 +8,25 @@
 // =============================================================================
 
 import pg from 'pg';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Load root .env first, then local backend .env
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
+dotenv.config();
 
 const { Pool } = pg;
+
+// Parse NUMERIC (OID 1700) as float
+pg.types.setTypeParser(1700, (val) => parseFloat(val));
+// Keep DATE (OID 1082) as a string YYYY-MM-DD
+pg.types.setTypeParser(1082, (val) => val);
+// Keep TIMESTAMPTZ (OID 1184) as string
+pg.types.setTypeParser(1184, (val) => val);
+// Keep TIMESTAMP (OID 1114) as string
+pg.types.setTypeParser(1114, (val) => val);
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -27,15 +44,27 @@ pool.on('error', (err) => {
 });
 
 /**
- * Test database connectivity. Called during server startup.
+ * Test database connectivity with automatic retry. Called during server startup.
  */
-export async function testConnection(): Promise<void> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query('SELECT NOW() as current_time, current_database() as db');
-    console.log(`🗄️  Connected to PostgreSQL: ${result.rows[0].db} at ${result.rows[0].current_time}`);
-  } finally {
-    client.release();
+export async function testConnection(retries = 5, delay = 2000): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const client = await pool.connect();
+      try {
+        const result = await client.query('SELECT NOW() as current_time, current_database() as db');
+        console.log(`🗄️  Connected to PostgreSQL: ${result.rows[0].db} at ${result.rows[0].current_time}`);
+        return;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`⚠️  Database connection attempt ${i + 1}/${retries} failed: ${msg}. Retrying in ${delay}ms...`);
+      if (i === retries - 1) {
+        throw new Error(`Could not connect to PostgreSQL after ${retries} attempts: ${msg}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
 }
 

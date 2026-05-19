@@ -465,9 +465,43 @@ export default function ClientDetail() {
 
           {activeTab === 'Payment' && (
             <div className="space-y-4 max-w-2xl">
-              <Input label="Total Amount (₹)" type="number" value={payment['Total Amount (₹)'] || ''} onChange={e => setPayment({...payment, 'Total Amount (₹)': e.target.value})} disabled={!canEditPayment} />
-              <Input label="Paid Amount (₹)" type="number" value={payment['Paid Amount (₹)'] || ''} onChange={e => setPayment({...payment, 'Paid Amount (₹)': e.target.value})} disabled={!canEditPayment} />
-              <Input label="Pending Amount (₹)" type="number" value={payment['Pending Amount (₹)'] || ''} onChange={e => setPayment({...payment, 'Pending Amount (₹)': e.target.value})} disabled={!canEditPayment} />
+              <Input 
+                label="Total Amount (₹)" 
+                type="number" 
+                value={payment['Total Amount (₹)'] || ''} 
+                onChange={e => {
+                  const total = parseFloat(e.target.value) || 0;
+                  const paid = parseFloat(payment['Paid Amount (₹)']) || 0;
+                  setPayment({
+                    ...payment,
+                    'Total Amount (₹)': e.target.value,
+                    'Pending Amount (₹)': String(Math.max(0, total - paid))
+                  });
+                }} 
+                disabled={!canEditPayment} 
+              />
+              <Input 
+                label="Paid Amount (₹)" 
+                type="number" 
+                value={payment['Paid Amount (₹)'] || ''} 
+                onChange={e => {
+                  const total = parseFloat(payment['Total Amount (₹)']) || 0;
+                  const paid = parseFloat(e.target.value) || 0;
+                  setPayment({
+                    ...payment,
+                    'Paid Amount (₹)': e.target.value,
+                    'Pending Amount (₹)': String(Math.max(0, total - paid))
+                  });
+                }} 
+                disabled={!canEditPayment} 
+              />
+              <Input 
+                label="Pending Amount (₹)" 
+                type="number" 
+                value={payment['Pending Amount (₹)'] || ''} 
+                disabled={true} 
+                placeholder="Automatically calculated"
+              />
               <Input label="Due Date" type="date" value={payment['Due Date'] || ''} onChange={e => setPayment({...payment, 'Due Date': e.target.value})} disabled={!canEditPayment} />
               <Select
                 label="Payment Status"

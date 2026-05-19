@@ -15,10 +15,13 @@ import { clientsRouter } from './routes/clients.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { backupRouter } from './routes/backup.js';
 import { healthRouter } from './routes/health.js';
+import { activityLogsRouter } from './routes/activityLogs.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { authenticate } from './middleware/auth.js';
 import { tracingMiddleware } from './middleware/tracing.js';
-import { getDb, localDbInfo, mutateDb } from './db/localStore.js';
+import { seedDefaultAdmin, localDbInfo } from './db/localStore.js';
+import { runMigrations } from './db/migrate.js';
+import { query, testConnection } from './db/pool.js';
 import { startR2BackupScheduler } from './db/r2Backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,29 +75,47 @@ app.use('/api', authRouter);
 app.use('/api/clients', authenticate, clientsRouter);
 app.use('/api/uploads', authenticate, uploadsRouter);
 app.use('/api/backup', authenticate, backupRouter);
+app.use('/api/activity-logs', authenticate, activityLogsRouter);
 
 app.use('/api/*', notFoundHandler);
 app.use(errorHandler);
 
 async function createScheduledSnapshot() {
   try {
-    await mutateDb((db) => {
-      const snapshot: Record<string, any[]> = {};
-      const table_counts: Record<string, number> = {};
-      for (const table of ['clients', 'workflow_status', 'surveys', 'quotations', 'installations', 'subsidies', 'payments', 'documents', 'users']) {
-        snapshot[table] = (db as any)[table].map((row: any) => ({ ...row }));
-        table_counts[table] = snapshot[table].length;
-      }
-      db.backup_snapshots.unshift({
-        id: randomUUID(),
-        created_at: new Date().toISOString(),
-        label: `Scheduled backup ${new Date().toISOString()}`,
-        snapshot_data: snapshot,
-        table_counts,
-        created_by: 'system',
-      });
-      db.backup_snapshots = db.backup_snapshots.slice(0, 200);
-    });
+    const tablesToSnapshot = ['clients', 'workflow_status', 'surveys', 'quotations', 'installations', 'subsidies', 'payments', 'documents', 'users'];
+    const snapshot: Record<string, any[]> = {};
+    const table_counts: Record<string, number> = {};
+
+    await Promise.all(
+      tablesToSnapshot.map(async (table) => {
+        const res = await query(`SELECT * FROM ${table}`);
+        snapshot[table] = res.rows;
+        table_counts[table] = res.rows.length;
+      })
+    );
+
+    const snapshotId = randomUUID();
+    await query(
+      'INSERT INTO backup_snapshots (id, label, snapshot_data, table_counts, created_by, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+      [
+        snapshotId,
+        `Scheduled backup ${new Date().toISOString()}`,
+        JSON.stringify(snapshot),
+        JSON.stringify(table_counts),
+        'system'
+      ]
+    );
+
+    // Keep only latest 200 snapshots in database
+    await query(`
+      DELETE FROM backup_snapshots
+      WHERE id NOT IN (
+        SELECT id FROM backup_snapshots
+        ORDER BY created_at DESC
+        LIMIT 200
+      )
+    `);
+
     console.log(`Auto-backup created at ${new Date().toISOString()}`);
   } catch (err) {
     console.error('Auto-backup failed:', err instanceof Error ? err.message : err);
@@ -103,7 +124,13 @@ async function createScheduledSnapshot() {
 
 async function startServer() {
   try {
-    await getDb();
+    // Wait for the database and verify connectivity
+    await testConnection();
+
+    // Automatically run safe, idempotent schema migrations on startup
+    await runMigrations();
+    
+    await seedDefaultAdmin();
     const info = await localDbInfo();
 
     const server = app.listen(PORT, '0.0.0.0', () => {
