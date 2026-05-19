@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb, localDbInfo, mutateDb } from '../db/localStore.js';
+import { getDb, localDbInfo, mutateDb, executeRestore, logActivity } from '../db/localStore.js';
 import { authenticate } from '../middleware/auth.js';
 import { uploadBackupToR2, listR2Backups, restoreFromR2Backup, downloadR2Backup } from '../db/r2Backup.js';
+import { query } from '../db/pool.js';
 
 export const backupRouter = Router();
 
@@ -146,29 +147,22 @@ backupRouter.post('/:id/restore', authenticate, async (req: Request, res: Respon
   }
 
   try {
-    const restored = await mutateDb((db) => {
-      const backup = db.backup_snapshots.find((row) => row.id === req.params.id);
-      if (!backup) return false;
-      for (const table of tablesToBackup) {
-        (db as any)[table] = (backup.snapshot_data[table] || []).map((row: any) => ({ ...row }));
-      }
-      db.activity_log.push({
-        id: uuidv4(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        user_email: req.user?.email,
-        action: 'RESTORE',
-        entity_type: 'backup',
-        entity_id: req.params.id,
-        details: { label: backup.label },
-      });
-      return true;
-    });
-
-    if (!restored) {
+    const backupRes = await query('SELECT * FROM backup_snapshots WHERE id = $1', [req.params.id]);
+    const backup = backupRes.rows[0];
+    if (!backup) {
       res.status(404).json({ error: 'Backup not found' });
       return;
     }
+
+    await executeRestore(backup.snapshot_data);
+
+    await logActivity({
+      user_email: req.user?.email,
+      action: 'RESTORE',
+      entity_type: 'backup',
+      entity_id: req.params.id,
+      details: { label: backup.label },
+    });
 
     res.json({ message: 'Database restored from backup', backupId: req.params.id });
   } catch (err) {
@@ -251,5 +245,44 @@ backupRouter.get('/r2/download', authenticate, async (req: Request, res: Respons
   } catch (err: any) {
     console.error('Error downloading R2 backup:', err);
     res.status(500).json({ error: err.message || 'Failed to download backup' });
+  }
+});
+
+// Restore database from raw JSON payload (browser local storage or local JSON file upload)
+backupRouter.post('/restore-data', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role !== 'Admin') {
+    res.status(403).json({ error: 'Only admins can restore backups' });
+    return;
+  }
+
+  const { snapshotData } = req.body;
+  if (!snapshotData) {
+    res.status(400).json({ error: 'Missing snapshot data to restore' });
+    return;
+  }
+
+  try {
+    let data = snapshotData;
+    if (snapshotData.sheets) {
+      data = snapshotData.sheets;
+    } else if (snapshotData.snapshot_data) {
+      data = snapshotData.snapshot_data;
+    } else if (snapshotData.data) {
+      data = snapshotData.data;
+    }
+
+    await executeRestore(data);
+
+    await logActivity({
+      user_email: req.user?.email,
+      action: 'RESTORE_LOCAL',
+      entity_type: 'backup_local',
+      details: { label: req.body.label || 'Local Backup Restore' },
+    });
+
+    res.json({ message: 'Database successfully restored from local backup' });
+  } catch (err: any) {
+    console.error('Error restoring local data:', err);
+    res.status(500).json({ error: err.message || 'Failed to restore local database' });
   }
 });

@@ -25,6 +25,9 @@ export default function BackupManager() {
   const [restoringR2Key, setRestoringR2Key] = useState<string | null>(null);
   const [creatingR2Backup, setCreatingR2Backup] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(''); // YYYY-MM-DD
+  const [restoringLocalId, setRestoringLocalId] = useState<string | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadBackups();
@@ -114,6 +117,91 @@ export default function BackupManager() {
     } finally {
       setRestoringR2Key(null);
     }
+  };
+
+  const handleRestoreLocal = async (backup: BackupSnapshot) => {
+    if (user?.role !== 'Admin') {
+      toast.error('Only Admins can restore backups');
+      return;
+    }
+    if (!window.confirm('WARNING: Restoring will overwrite the current database. Are you sure you want to proceed?')) {
+      return;
+    }
+    setRestoringLocalId(backup.id);
+    try {
+      const res = await fetch('/api/backup/restore-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          snapshotData: backup.sheets || backup,
+          label: `Local Browser Backup (${new Date(backup.timestamp).toLocaleDateString()})`
+        }),
+        credentials: 'include',
+      });
+      if (res.ok) {
+        toast.success('Database successfully restored from local backup!');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to restore local backup');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to restore local backup');
+    } finally {
+      setRestoringLocalId(null);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (user?.role !== 'Admin') {
+      toast.error('Only Admins can restore backups');
+      return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!window.confirm(`Are you sure you want to restore the database from "${file.name}"? This will overwrite your active database.`)) {
+      event.target.value = '';
+      return;
+    }
+
+    setUploadingFile(true);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const fileContent = e.target?.result;
+        if (typeof fileContent !== 'string') {
+          throw new Error('Could not read backup file');
+        }
+        const parsed = JSON.parse(fileContent);
+
+        const res = await fetch('/api/backup/restore-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            snapshotData: parsed,
+            label: `Uploaded File Backup (${file.name})`
+          }),
+          credentials: 'include',
+        });
+
+        if (res.ok) {
+          toast.success('Database successfully restored from uploaded backup file!');
+          setTimeout(() => window.location.reload(), 1500);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.error || 'Failed to restore database from file');
+        }
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || 'Invalid backup file format');
+      } finally {
+        setUploadingFile(false);
+        event.target.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleCreateR2Backup = async () => {
@@ -208,16 +296,40 @@ export default function BackupManager() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-            <Button
-              onClick={handleCreateBackup}
-              disabled={loading}
-              className="bg-green-600 hover:bg-green-700 whitespace-nowrap"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {loading ? 'Creating...' : 'Create Backup Now'}
-            </Button>
-            <p className="text-sm text-gray-600 self-center">
+          <div className="flex gap-2 flex-wrap items-center justify-between">
+            <div className="flex gap-2 flex-wrap items-center">
+              <Button
+                onClick={handleCreateBackup}
+                disabled={loading}
+                className="bg-green-600 hover:bg-green-700 whitespace-nowrap"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {loading ? 'Creating...' : 'Create Backup Now'}
+              </Button>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".json"
+                onChange={handleFileUpload}
+                disabled={uploadingFile || user?.role !== 'Admin'}
+                className="hidden"
+              />
+              {user?.role === 'Admin' ? (
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFile}
+                  variant="outline"
+                  className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {uploadingFile ? 'Restoring...' : 'Restore from JSON File'}
+                </Button>
+              ) : (
+                <span className="text-xs text-gray-400 font-medium bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1">Restore from File (Admin Only)</span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600">
               Auto-backups run hourly. {selectedDate ? `Showing backups for ${selectedDate}.` : 'Showing the 3 most recent backups.'}
             </p>
           </div>
@@ -332,6 +444,22 @@ export default function BackupManager() {
                       </div>
 
                       <div className="flex gap-2">
+                        {user?.role === 'Admin' ? (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRestoreLocal(backup)}
+                            disabled={restoringLocalId !== null}
+                            className="flex items-center bg-blue-600 hover:bg-blue-700 text-white text-xs px-2.5"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                            {restoringLocalId === backup.id ? 'Restoring...' : 'Restore'}
+                          </Button>
+                        ) : (
+                          <Badge variant="outline" className="text-gray-400">
+                            Admin Only
+                          </Badge>
+                        )}
+
                         <Button
                           size="sm"
                           variant="outline"

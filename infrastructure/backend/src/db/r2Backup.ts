@@ -10,7 +10,7 @@
 
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { gzipSync, gunzipSync } from 'zlib';
-import { getDb, mutateDb } from './localStore.js';
+import { getDb, mutateDb, executeRestore, logActivity } from './localStore.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const BACKUP_TABLES = [
@@ -246,23 +246,14 @@ export async function restoreFromR2Backup(key: string, userEmail: string): Promi
     throw new Error('Invalid backup format in R2');
   }
 
-  await mutateDb((db) => {
-    for (const table of BACKUP_TABLES) {
-      if (backup.data[table]) {
-        (db as any)[table] = backup.data[table].map((row: any) => ({ ...row }));
-      }
-    }
-    db.activity_log.push({
-      id: uuidv4(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      user_email: userEmail,
-      action: 'RESTORE_R2',
-      entity_type: 'backup_r2',
-      entity_id: key,
-      details: { key },
-    });
-    return true;
+  await executeRestore(backup.data);
+
+  await logActivity({
+    user_email: userEmail,
+    action: 'RESTORE_R2',
+    entity_type: 'backup_r2',
+    entity_id: key,
+    details: { key },
   });
 
   return true;

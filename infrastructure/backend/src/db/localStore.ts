@@ -257,3 +257,166 @@ export async function localDbInfo() {
   const dbName = pool.options.database || 'anticrm';
   return { path: `PostgreSQL Database: ${dbName}` };
 }
+
+const VALID_COLUMNS: Record<string, string[]> = {
+  users: ['id', 'email', 'password', 'role', 'name', 'active', 'created_at', 'updated_at'],
+  clients: ['id', 'name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'created_date', 'assigned_to', 'created_at', 'updated_at'],
+  workflow_status: ['id', 'client_id', 'stage', 'updated_at', 'updated_by'],
+  surveys: ['id', 'client_id', 'survey_date', 'site_images', 'recommended_system_details', 'surveyor_name'],
+  quotations: ['id', 'client_id', 'quotation_pdf', 'amount', 'validity_date', 'approval_status'],
+  installations: ['id', 'client_id', 'team_members', 'progress_notes', 'completion_percentage', 'start_date', 'end_date'],
+  subsidies: ['id', 'client_id', 'status', 'applied_date', 'approval_date', 'amount'],
+  payments: ['id', 'client_id', 'total_amount', 'paid_amount', 'pending_amount', 'due_date', 'payment_status'],
+  documents: [
+    'id', 'client_id', 'aadhaar_link', 'aadhaar_number', 'electricity_bill_link', 'bill_number',
+    'pan_card_link', 'bank_details', 'additional_doc_1_link', 'additional_doc_2_link',
+    'additional_doc_3_link', 'quotation_doc_link', 'installation_photos_link', 'subsidy_docs_link'
+  ]
+};
+
+function parseDateToYyyyMmDd(val: any): string | null {
+  if (!val) return null;
+  if (val instanceof Date) {
+    return val.toISOString().slice(0, 10);
+  }
+  const str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.slice(0, 10);
+  }
+  const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) {
+    const [, d, m, y] = match;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function cleanRowForTable(table: string, row: any): any {
+  if (!row || typeof row !== 'object') return null;
+  const cols = VALID_COLUMNS[table];
+  if (!cols) return null;
+
+  const cleaned: any = {};
+  for (const key of Object.keys(row)) {
+    let normKey = key.toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+
+    if (normKey.startsWith('client_id') || normKey === 'clientid') {
+      normKey = 'client_id';
+    } else if (normKey.startsWith('system_size')) {
+      normKey = 'system_size_kw';
+    } else if (normKey.startsWith('total_amount')) {
+      normKey = 'total_amount';
+    } else if (normKey.startsWith('paid_amount')) {
+      normKey = 'paid_amount';
+    } else if (normKey.startsWith('pending_amount')) {
+      normKey = 'pending_amount';
+    } else if (normKey.startsWith('due_date')) {
+      normKey = 'due_date';
+    } else if (normKey.startsWith('payment_status')) {
+      normKey = 'payment_status';
+    } else if (normKey.startsWith('created_date')) {
+      normKey = 'created_date';
+    } else if (normKey.startsWith('survey_date')) {
+      normKey = 'survey_date';
+    } else if (normKey.startsWith('validity_date')) {
+      normKey = 'validity_date';
+    } else if (normKey.startsWith('start_date')) {
+      normKey = 'start_date';
+    } else if (normKey.startsWith('end_date')) {
+      normKey = 'end_date';
+    } else if (normKey.startsWith('applied_date')) {
+      normKey = 'applied_date';
+    } else if (normKey.startsWith('approval_date')) {
+      normKey = 'approval_date';
+    } else if (normKey.startsWith('updated_at')) {
+      normKey = 'updated_at';
+    } else if (normKey.startsWith('created_at')) {
+      normKey = 'created_at';
+    } else if (normKey.startsWith('completion_percentage')) {
+      normKey = 'completion_percentage';
+    }
+
+    if (cols.includes(normKey)) {
+      let val = row[key];
+      if (['created_date', 'survey_date', 'validity_date', 'start_date', 'end_date', 'applied_date', 'approval_date', 'due_date'].includes(normKey)) {
+        val = parseDateToYyyyMmDd(val);
+      } else if (['created_at', 'updated_at'].includes(normKey)) {
+        if (val) {
+          const d = new Date(val);
+          val = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+        } else {
+          val = new Date().toISOString();
+        }
+      }
+      cleaned[normKey] = val;
+    }
+  }
+
+  if (!cleaned.id && table !== 'clients') {
+    cleaned.id = uuidv4();
+  }
+
+  return cleaned;
+}
+
+export async function executeRestore(snapshotData: any): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const tablesToDelete = [
+      'workflow_status',
+      'surveys',
+      'quotations',
+      'installations',
+      'subsidies',
+      'payments',
+      'documents',
+      'clients',
+      'users'
+    ];
+
+    for (const table of tablesToDelete) {
+      await client.query(`DELETE FROM ${table}`);
+    }
+
+    const tablesToInsert = [
+      'users',
+      'clients',
+      'workflow_status',
+      'surveys',
+      'quotations',
+      'installations',
+      'subsidies',
+      'payments',
+      'documents'
+    ];
+
+    for (const table of tablesToInsert) {
+      const rows = snapshotData[table] || [];
+      for (const row of rows) {
+        const cleaned = cleanRowForTable(table, row);
+        if (!cleaned) continue;
+
+        const keys = Object.keys(cleaned);
+        const values = Object.values(cleaned);
+        if (keys.length === 0) continue;
+
+        const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+        const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
+        await client.query(sql, values);
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  await seedDefaultAdmin();
+}
