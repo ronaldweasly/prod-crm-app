@@ -1,3 +1,4 @@
+/// <reference types="@testing-library/jest-dom" />
 // @vitest-environment jsdom
 /**
  * Authentication Test Suite

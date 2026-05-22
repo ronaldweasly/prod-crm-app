@@ -1,5 +1,5 @@
 export type Role = 'Admin' | 'Sales Team' | 'Engineer' | 'Accountant' | 'Manager';
-export type WorkflowStage = 'Lead' | 'Survey Scheduled' | 'Survey Done' | 'Quotation Sent' | 'Quotation Approved' | 'Installation Started' | 'Installation Completed' | 'Subsidy Applied' | 'Subsidy Received' | 'Project Closed';
+export type WorkflowStage = 'Lead' | '1. REGISTRATION' | '2. LOAN APPLIED' | '3. LOAN APPROVED' | '4. FIRST DISBURSAL' | '5. MARGIN MONEY' | '6. STRUCTURE INSTALLATION' | '7. WIRING DONE' | '8. NET METERING' | '9. PORTAL UPDATE' | '10. SUBSIDY CLAIM' | '11. 30% FILE SENT TO BANK' | '12. 30% RECEIVED' | '13. FILE / CASE CLOSED';
 export type SubsidyStatus = 'Applied' | 'Under Review' | 'Approved' | 'Received';
 
 export interface UserRow {
@@ -19,6 +19,9 @@ export interface ClientRow {
   'System Size (kW)': string;
   'Created Date': string;
   'Assigned To': string;
+  'Assigned To Field': string;
+  'Payment Mode': string;
+  'Dispute Status': string;
 }
 
 export interface WorkflowStatusRow {

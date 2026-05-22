@@ -260,7 +260,7 @@ export async function localDbInfo() {
 
 const VALID_COLUMNS: Record<string, string[]> = {
   users: ['id', 'email', 'password', 'role', 'name', 'active', 'created_at', 'updated_at'],
-  clients: ['id', 'name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'created_date', 'assigned_to', 'created_at', 'updated_at'],
+  clients: ['id', 'name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'created_date', 'assigned_to', 'assigned_to_field', 'payment_mode', 'dispute_status', 'created_at', 'updated_at'],
   workflow_status: ['id', 'client_id', 'stage', 'updated_at', 'updated_by'],
   surveys: ['id', 'client_id', 'survey_date', 'site_images', 'recommended_system_details', 'surveyor_name'],
   quotations: ['id', 'client_id', 'quotation_pdf', 'amount', 'validity_date', 'approval_status'],
@@ -374,8 +374,7 @@ export async function executeRestore(snapshotData: any): Promise<void> {
       'subsidies',
       'payments',
       'documents',
-      'clients',
-      'users'
+      'clients'
     ];
 
     for (const table of tablesToDelete) {
@@ -383,7 +382,6 @@ export async function executeRestore(snapshotData: any): Promise<void> {
     }
 
     const tablesToInsert = [
-      'users',
       'clients',
       'workflow_status',
       'surveys',
@@ -417,6 +415,4 @@ export async function executeRestore(snapshotData: any): Promise<void> {
   } finally {
     client.release();
   }
-
-  await seedDefaultAdmin();
 }

@@ -317,6 +317,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refreshSession = async () => {
+    setIsLoading(true);
+    try {
+      const session = await getCurrentSession();
+      if (session?.user?.email) {
+        await loadUserRole(session.user.email);
+      }
+    } catch (err: any) {
+      console.error('[Auth] Refresh session failed:', err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -347,7 +361,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, error }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, error, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );

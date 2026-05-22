@@ -51,7 +51,7 @@ export default function ProposalGenerator({
   const [batteryCapacityKwh, setBatteryCapacityKwh] = useState('');
 
   const [systemCostBeforeSubsidy, setSystemCostBeforeSubsidy] = useState(quotationData?.['Amount (₹)'] || '');
-  const [gstPercent] = useState('18');
+  const [gstPercent, setGstPercent] = useState('18');
   const [subsidyEligible, setSubsidyEligible] = useState(false);
   const [subsidyAmount, setSubsidyAmount] = useState('');
 
@@ -63,11 +63,15 @@ export default function ProposalGenerator({
   const [validityDays, setValidityDays] = useState('30');
   const [notes, setNotes] = useState('');
   const [companyName, setCompanyName] = useState('Doctor Electric');
-  const [companyPhone, setCompanyPhone] = useState('+91 95540 55055');
-  const [companyEmail, setCompanyEmail] = useState('contact@doctorelectric.in');
+  const [companyPhone, setCompanyPhone] = useState('+91 832 911 4497');
+  const [companyEmail, setCompanyEmail] = useState('yt.doctorelectric@gmail.com');
   const [warrantyYearsPanel, setWarrantyYearsPanel] = useState('25');
   const [warrantyYearsInverter, setWarrantyYearsInverter] = useState('5');
-  const [warrantyYearsStructure, setWarrantyYearsStructure] = useState('10');
+  const [customTerms, setCustomTerms] = useState(
+    '1. Net-metering approval and solar subsidy are subject to DISCOM and government policies.\n' +
+    '2. Payment Terms: 60% advance with order, 30% upon material delivery, and 10% after installation.\n' +
+    '3. Customer is responsible for providing clear site access, water, and electricity during execution.'
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -76,8 +80,8 @@ export default function ProposalGenerator({
     setCompanyPreset(savedPreset as 'doctor_electric' | 'custom');
     if (savedPreset === 'doctor_electric') {
       setCompanyName('Doctor Electric');
-      setCompanyPhone('+91 95540 55055');
-      setCompanyEmail('contact@doctorelectric.in');
+      setCompanyPhone('+91 832 911 4497');
+      setCompanyEmail('yt.doctorelectric@gmail.com');
     } else {
       const stored = localStorage.getItem(COMPANY_STORAGE_KEY);
       if (stored) {
@@ -111,8 +115,8 @@ export default function ProposalGenerator({
     localStorage.setItem('solarcrm_company_preset', preset);
     if (preset === 'doctor_electric') {
       setCompanyName('Doctor Electric');
-      setCompanyPhone('+91 95540 55055');
-      setCompanyEmail('contact@doctorelectric.in');
+      setCompanyPhone('+91 832 911 4497');
+      setCompanyEmail('yt.doctorelectric@gmail.com');
     } else {
       const stored = localStorage.getItem(COMPANY_STORAGE_KEY);
       if (stored) {
@@ -142,11 +146,38 @@ export default function ProposalGenerator({
   useEffect(() => {
     if (!isOpen) return;
     const monthly = Number(estimatedMonthlyGeneration) || 0;
-    if (monthly > 0 && !estimatedAnnualSavings) {
-      // Assume blended tariff of ~Rs 10.5/kWh for projected savings.
-      setEstimatedAnnualSavings(String(Math.round(monthly * 12 * 10.5)));
+    if (monthly > 0) {
+      // Calculated at Rs 8 per unit
+      setEstimatedAnnualSavings(String(Math.round(monthly * 12 * 8)));
+    } else {
+      setEstimatedAnnualSavings('');
     }
-  }, [estimatedMonthlyGeneration, estimatedAnnualSavings, isOpen]);
+  }, [estimatedMonthlyGeneration, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (subsidyEligible && systemSizeKw) {
+      const kw = Number(systemSizeKw) || 0;
+      if (kw > 0) {
+        // UP Solar Subsidy Scheme Rules
+        // Central subsidy: ₹30,000/kW for systems <= 2 kW; for systems > 2 kW: ₹60,000 + (kW - 2) * ₹18,000 (capped at ₹78,000).
+        let central = 0;
+        if (kw <= 2) {
+          central = kw * 30000;
+        } else {
+          central = Math.min(78000, 60000 + (kw - 2) * 18000);
+        }
+        // State subsidy (UP): ₹15,000/kW capped at ₹30,000.
+        const state = Math.min(30000, kw * 15000);
+        const total = central + state;
+        setSubsidyAmount(String(total));
+      } else {
+        setSubsidyAmount('');
+      }
+    } else if (!subsidyEligible) {
+      setSubsidyAmount('');
+    }
+  }, [subsidyEligible, systemSizeKw, isOpen]);
 
   const computed = useMemo(() => {
     const systemCost = Number(systemCostBeforeSubsidy) || 0;
@@ -154,6 +185,7 @@ export default function ProposalGenerator({
     const subsidyDeduction = subsidyEligible ? Number(subsidyAmount) || 0 : 0;
     const annualSavings = Number(estimatedAnnualSavings) || 0;
     const gstAmount = (systemCost * gst) / 100;
+    const systemCostAfterSubsidy = Math.max(0, systemCost - subsidyDeduction);
     const finalCost = systemCost + gstAmount - subsidyDeduction;
     const payback = annualSavings > 0 ? finalCost / annualSavings : 0;
     const roi = finalCost > 0 ? (annualSavings / finalCost) * 100 : 0;
@@ -161,6 +193,7 @@ export default function ProposalGenerator({
     return {
       gstAmount,
       subsidyDeduction,
+      systemCostAfterSubsidy,
       finalCost,
       paybackPeriodYears: Number.isFinite(payback) ? Number(payback.toFixed(1)) : 0,
       roiPercent: Number.isFinite(roi) ? Number(roi.toFixed(1)) : 0,
@@ -201,8 +234,8 @@ export default function ProposalGenerator({
       companyEmail,
       warrantyYearsPanel: Number(warrantyYearsPanel) || 25,
       warrantyYearsInverter: Number(warrantyYearsInverter) || 5,
-      warrantyYearsStructure: Number(warrantyYearsStructure) || 10,
       notes: notes || undefined,
+      customTerms: customTerms || undefined,
       useDoctorElectricLogo: companyPreset === 'doctor_electric',
     };
   }, [
@@ -233,7 +266,7 @@ export default function ProposalGenerator({
     companyEmail,
     warrantyYearsPanel,
     warrantyYearsInverter,
-    warrantyYearsStructure,
+    customTerms,
     notes,
     companyPreset,
   ]);
@@ -361,8 +394,15 @@ export default function ProposalGenerator({
               <Select
                 label="GST %"
                 value={gstPercent}
-                options={[{ label: '18', value: '18' }]}
+                onChange={(e) => setGstPercent(e.target.value)}
+                options={[{ label: '5%', value: '5' }, { label: '18%', value: '18' }]}
+              />
+              <Input
+                label="System cost after subsidy (Rs)"
+                type="number"
+                value={computed.systemCostAfterSubsidy || ''}
                 disabled
+                placeholder="Automatically calculated"
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -441,7 +481,6 @@ export default function ProposalGenerator({
               <Input label="Company email" value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} disabled={companyPreset === 'doctor_electric'} />
               <Input label="Panel warranty (years)" type="number" value={warrantyYearsPanel} onChange={(e) => setWarrantyYearsPanel(e.target.value)} />
               <Input label="Inverter warranty (years)" type="number" value={warrantyYearsInverter} onChange={(e) => setWarrantyYearsInverter(e.target.value)} />
-              <Input label="Structure warranty (years)" type="number" value={warrantyYearsStructure} onChange={(e) => setWarrantyYearsStructure(e.target.value)} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
@@ -451,16 +490,50 @@ export default function ProposalGenerator({
                 className="w-full rounded-md border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-solar min-h-[90px]"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Standard Terms &amp; Conditions</label>
+              <textarea
+                value={customTerms}
+                onChange={(e) => setCustomTerms(e.target.value)}
+                className="w-full rounded-md border border-gray-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-solar min-h-[90px]"
+              />
+            </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
-            <h4 className="text-sm font-semibold text-slate-700">Live summary</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-              <div className="text-slate-600">GST amount</div><div className="font-medium text-slate-800">{formatInr(computed.gstAmount)}</div>
-              <div className="text-slate-600">Subsidy deduction</div><div className="font-medium text-slate-800">{formatInr(computed.subsidyDeduction)}</div>
-              <div className="text-slate-600">Final cost</div><div className="font-medium text-slate-800">{formatInr(computed.finalCost)}</div>
-              <div className="text-slate-600">Payback period</div><div className="font-medium text-slate-800">{computed.paybackPeriodYears.toFixed(1)} years</div>
-              <div className="text-slate-600">ROI</div><div className="font-medium text-slate-800">{computed.roiPercent.toFixed(1)}%</div>
+          <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-5 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Live Summary</h4>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Auto-calculated
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-slate-600">Basic Price</span>
+                <span className="font-semibold text-slate-800">{formatInr(Number(systemCostBeforeSubsidy) || 0)}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-slate-600">GST ({gstPercent}%)</span>
+                <span className="font-semibold text-slate-800">{formatInr(computed.gstAmount)}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-slate-600">Subsidy Deduction</span>
+                <span className="font-semibold text-rose-600">-{formatInr(computed.subsidyDeduction)}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-slate-600 font-medium">Final Cost</span>
+                <span className="font-bold text-emerald-700">{formatInr(computed.finalCost)}</span>
+              </div>
+              <div className="flex justify-between pb-1 sm:pb-0">
+                <span className="text-slate-600">Payback Period</span>
+                <span className="font-semibold text-slate-800">{computed.paybackPeriodYears.toFixed(1)} years</span>
+              </div>
+              <div className="flex justify-between pb-1 sm:pb-0">
+                <span className="text-slate-600">ROI</span>
+                <span className="font-semibold text-emerald-700">{computed.roiPercent.toFixed(1)}%</span>
+              </div>
             </div>
           </div>
 

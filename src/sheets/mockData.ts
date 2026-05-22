@@ -26,7 +26,7 @@ function randomDate(start: Date, end: Date) {
 const firstNames = ['Aarav','Vivaan','Aditya','Vihaan','Arjun','Sai','Reyansh','Ayaan','Krishna','Ishaan','Shaurya','Atharv','Advik','Pranav','Rian','Kabir','Rudra','Aryan','Dhruv','Siddharth','Diya','Pari','Anushka','Avni','Aadhya','Kriti','Myra','Ananya','Aaradhya','Kiara','Saanvi','Prisha','Riya','Aanya','Sara','Jiya','Tara','Kavya','Navya','Isha','Siya','Nitya','Anvi','Ahana'];
 const lastNames  = ['Patel','Sharma','Singh','Deshmukh','Rao','Kumar','Reddy','Das','Chatterjee','Iyer','Menon','Nair','Bose','Gupta','Joshi','Kapoor','Kaur','Mehta','Mishra','Pandey','Saxena','Shah','Verma','Yadav','Trivedi','Agarwal','Chauhan','Dixit','Jain','Garg','Chopra','Malhotra','Sethi'];
 const addresses  = ['M.G. Road','Link Road','Outer Ring Road','Park Street','FC Road','Kalyani Nagar','Indiranagar','Juhu','Bandra','Connaught Place','Vasant Kunj','Salt Lake','Gachibowli','Banjara Hills','Marina Beach','Anna Nagar'];
-const stages     = ['Lead','Survey Scheduled','Survey Done','Quotation Sent','Quotation Approved','Installation Started','Installation Completed','Subsidy Applied','Subsidy Received','Project Closed'];
+const stages     = ['Lead', '1. REGISTRATION', '2. LOAN APPLIED', '3. LOAN APPROVED', '4. FIRST DISBURSAL', '5. MARGIN MONEY', '6. STRUCTURE INSTALLATION', '7. WIRING DONE', '8. NET METERING', '9. PORTAL UPDATE', '10. SUBSIDY CLAIM', '11. 30% FILE SENT TO BANK', '12. 30% RECEIVED', '13. FILE / CASE CLOSED'];
 const roofTypes  = ['Flat','Sloped','Mixed'];
 const sysSizes   = ['3','5','8','10','15','20'];
 

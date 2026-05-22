@@ -49,7 +49,7 @@ export default function ReportsPage() {
       const filteredSubsidies = subsidies.filter(s => clientIds.has(s['Client ID']));
       const filteredWorkflow = workflow.filter(w => clientIds.has(w['Client ID']));
 
-      const closedProjects = new Set(filteredWorkflow.filter(w => w.Stage === 'Project Closed').map(w => w['Client ID'])).size;
+      const closedProjects = new Set(filteredWorkflow.filter(w => w.Stage === '13. FILE / CASE CLOSED').map(w => w['Client ID'])).size;
       const subsidiesReceived = filteredSubsidies.filter(s => s.Status === 'Received').length;
       
       const totalRevenue = filteredPayments.reduce((acc, p) => acc + (parseFloat(p['Paid Amount (₹)']) || 0), 0);

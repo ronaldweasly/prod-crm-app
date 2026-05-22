@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS clients (
     system_size_kw  DECIMAL(10,2),
     created_date    DATE NOT NULL DEFAULT CURRENT_DATE,
     assigned_to     VARCHAR(255),
+    assigned_to_field VARCHAR(255),
+    payment_mode    VARCHAR(50) DEFAULT 'Loan' CHECK (payment_mode IN ('Loan', 'Cash', 'PDC (78)', 'PDC (30)', 'Advance')),
+    dispute_status  VARCHAR(50) DEFAULT 'None' CHECK (dispute_status IN ('None', 'Resolving')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -53,7 +56,7 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS workflow_status (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     client_id   VARCHAR(20) UNIQUE NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    stage       VARCHAR(100) NOT NULL DEFAULT 'New Lead',
+    stage       VARCHAR(100) NOT NULL DEFAULT 'Lead',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by  VARCHAR(255)
 );
@@ -131,6 +134,9 @@ CREATE TABLE IF NOT EXISTS documents (
 -- ─── SCHEMA UPGRADES (RUN ON COMPONENT STARTUP) ──────────────────────────────
 -- In case the database was already created before, apply columns if they do not exist.
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS battery_type VARCHAR(100);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS assigned_to_field VARCHAR(255);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(50) DEFAULT 'Loan';
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS dispute_status VARCHAR(50) DEFAULT 'None';
 
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS aadhaar_number VARCHAR(50);
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS bill_number VARCHAR(50);
@@ -170,6 +176,7 @@ CREATE TABLE IF NOT EXISTS activity_log (
 -- ─── INDEXES ────────────────────────────────────────────────────────────────
 -- WHY: Speed up common queries (lookups by client_id, date ranges, search)
 CREATE INDEX IF NOT EXISTS idx_clients_assigned_to ON clients(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_clients_assigned_to_field ON clients(assigned_to_field);
 CREATE INDEX IF NOT EXISTS idx_clients_created_date ON clients(created_date);
 CREATE INDEX IF NOT EXISTS idx_workflow_stage ON workflow_status(stage);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);

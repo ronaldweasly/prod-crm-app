@@ -28,7 +28,7 @@ const TABLE_MAP: Record<string, string> = {
 
 // Map Sheet Columns → DB Columns (in order)
 const DB_COLUMNS: Record<string, string[]> = {
-  [SHEET_NAMES.CLIENTS]: ['id', 'name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'created_date', 'assigned_to'],
+  [SHEET_NAMES.CLIENTS]: ['id', 'name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'created_date', 'assigned_to', 'assigned_to_field', 'payment_mode', 'dispute_status'],
   [SHEET_NAMES.WORKFLOW_STATUS]: ['client_id', 'stage', 'updated_at', 'updated_by'],
   [SHEET_NAMES.SURVEYS]: ['client_id', 'survey_date', 'site_images', 'recommended_system_details', 'surveyor_name'],
   [SHEET_NAMES.QUOTATIONS]: ['client_id', 'quotation_pdf', 'amount', 'validity_date', 'approval_status'],

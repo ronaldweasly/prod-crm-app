@@ -83,7 +83,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
              const updatedAt = new Date(ws['Updated At']); 
              if (!isNaN(updatedAt.getTime())) {
                 const diff = differenceInDays(new Date(), updatedAt);
-                if (diff > 7 && ws.Stage !== 'Project Closed') {
+                if (diff > 7 && ws.Stage !== '13. FILE / CASE CLOSED') {
                   const id = `workflow-${ws['Client ID']}-${ws['Updated At']}`;
                   const isRead = readNotificationIds.includes(id);
                   newNotifications.push({

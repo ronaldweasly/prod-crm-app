@@ -59,6 +59,7 @@ export const swaggerConfig = {
           system_size_kw: { type: 'number' },
           created_date: { type: 'string', format: 'date' },
           assigned_to: { type: 'string' },
+          assigned_to_field: { type: 'string' },
         },
       },
       ApiResponse: {

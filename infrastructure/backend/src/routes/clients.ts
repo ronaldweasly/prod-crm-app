@@ -83,6 +83,9 @@ function normalizeClient(body: any) {
     system_size_kw: numberOrNull(body.system_size_kw),
     created_date: parseDateToYyyyMmDd(body.created_date) || new Date().toISOString().slice(0, 10),
     assigned_to: body.assigned_to || '',
+    assigned_to_field: body.assigned_to_field || '',
+    payment_mode: body.payment_mode || 'Loan',
+    dispute_status: body.dispute_status || 'None',
   };
 }
 
@@ -209,7 +212,7 @@ clientsRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-clientsRouter.post('/', authorize('Admin', 'Sales Team'), async (req: Request, res: Response) => {
+clientsRouter.post('/', authorize('Admin', 'Sales Team', 'Manager'), async (req: Request, res: Response) => {
   try {
     const client = await insertRow('clients', normalizeClient(req.body));
 
@@ -234,10 +237,10 @@ clientsRouter.post('/', authorize('Admin', 'Sales Team'), async (req: Request, r
   }
 });
 
-clientsRouter.put('/:id', authorize('Admin', 'Sales Team'), async (req: Request, res: Response) => {
+clientsRouter.put('/:id', authorize('Admin', 'Sales Team', 'Manager'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const patch = pickBody(req.body, ['name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'assigned_to']);
+    const patch = pickBody(req.body, ['name', 'phone', 'address', 'roof_type', 'battery_type', 'system_size_kw', 'assigned_to', 'assigned_to_field', 'payment_mode', 'dispute_status']);
     if ('system_size_kw' in patch) patch.system_size_kw = numberOrNull(patch.system_size_kw);
 
     const client = await updateById('clients', id, patch);
@@ -261,7 +264,7 @@ clientsRouter.put('/:id', authorize('Admin', 'Sales Team'), async (req: Request,
   }
 });
 
-clientsRouter.put('/:id/workflow', authorize('Admin', 'Engineer', 'Sales Team'), async (req: Request, res: Response) => {
+clientsRouter.put('/:id/workflow', authorize('Admin', 'Engineer', 'Sales Team', 'Manager'), async (req: Request, res: Response) => {
   try {
     const row = await upsertByClientId('workflow_status', req.params.id, {
       stage: req.body.stage || 'Lead',

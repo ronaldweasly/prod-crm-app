@@ -16,7 +16,8 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSlideOpen, setIsSlideOpen] = useState(false);
-  const [salesUsers, setSalesUsers] = useState<{ label: string, value: string }[]>([]);
+  const [backofficeUsers, setBackofficeUsers] = useState<{ label: string, value: string }[]>([]);
+  const [fieldUsers, setFieldUsers] = useState<{ label: string, value: string }[]>([]);
   const [search, setSearch] = useState('');
 
   const { user } = useAuth();
@@ -44,11 +45,16 @@ export default function ClientsPage() {
 
       setClients(merged.reverse());
 
-      const assignees = allUsers
-        .filter(u => u.Active === 'TRUE' && (u.Role === 'Sales Team' || u.Role === 'Admin'))
+      const backoffice = allUsers
+        .filter(u => u.Active === 'TRUE' && ['Admin', 'Manager', 'Sales Team', 'Accountant'].includes(u.Role))
         .map(u => ({ label: u.Name || u.Email, value: u.Email }));
 
-      setSalesUsers(assignees);
+      const field = allUsers
+        .filter(u => u.Active === 'TRUE' && u.Role === 'Engineer')
+        .map(u => ({ label: u.Name || u.Email, value: u.Email }));
+
+      setBackofficeUsers(backoffice);
+      setFieldUsers(field);
     } catch (error) {
       toast.error('Failed to load clients');
     } finally {
@@ -122,12 +128,17 @@ export default function ClientsPage() {
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-slate-800 truncate">{client.Name}</p>
+                      <p className="font-semibold text-slate-800 truncate flex items-center gap-1.5">
+                        {client.Name}
+                        {client['Dispute Status'] === 'Resolving' && (
+                          <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold bg-red-100 text-red-600 rounded animate-pulse">DISPUTE</span>
+                        )}
+                      </p>
                       <p className="text-xs text-slate-500 font-mono">{client.ID}</p>
                     </div>
                     <Badge variant={
-                      client.Stage === 'Project Closed' ? 'success' :
-                        client.Stage.includes('Installation') ? 'warning' : 'default'
+                      client.Stage === '13. FILE / CASE CLOSED' ? 'success' :
+                        ['6. STRUCTURE INSTALLATION', '7. WIRING DONE', '8. NET METERING'].includes(client.Stage) ? 'warning' : 'default'
                     }>
                       {client.Stage}
                     </Badge>
@@ -181,7 +192,14 @@ export default function ClientsPage() {
                       onClick={() => navigate(`/clients/${client.ID}`)}
                     >
                       <td className="px-4 md:px-6 py-4 font-mono text-[10px] text-slate-500">{client.ID}</td>
-                      <td className="px-4 md:px-6 py-4 font-semibold text-slate-800">{client.Name}</td>
+                      <td className="px-4 md:px-6 py-4 font-semibold text-slate-800">
+                        <div className="flex items-center gap-2">
+                          {client.Name}
+                          {client['Dispute Status'] === 'Resolving' && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold bg-red-100 text-red-600 rounded animate-pulse">DISPUTE</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 md:px-6 py-4 text-slate-600">
                         <div className="font-medium">{client.Phone}</div>
                         <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{client.Address}</div>
@@ -191,8 +209,8 @@ export default function ClientsPage() {
                       </td>
                       <td className="px-4 md:px-6 py-4">
                         <Badge variant={
-                          client.Stage === 'Project Closed' ? 'success' :
-                            client.Stage.includes('Installation') ? 'warning' : 'default'}
+                          client.Stage === '13. FILE / CASE CLOSED' ? 'success' :
+                            ['6. STRUCTURE INSTALLATION', '7. WIRING DONE', '8. NET METERING'].includes(client.Stage) ? 'warning' : 'default'}
                         >
                           {client.Stage}
                         </Badge>
@@ -211,7 +229,8 @@ export default function ClientsPage() {
 
       <SlideOver isOpen={isSlideOpen} onClose={() => { setIsSlideOpen(false); setSearchParams({}, { replace: true }); }} title="New Lead">
         <MultiStepClientForm
-          salesUsers={salesUsers}
+          backofficeUsers={backofficeUsers}
+          fieldUsers={fieldUsers}
           user={user}
           onSuccess={() => {
             setIsSlideOpen(false);

@@ -10,7 +10,8 @@ import { appendRow } from '../sheets/api';
 import { SHEET_NAMES } from '../sheets/config';
 
 interface MultiStepClientFormProps {
-  salesUsers: { label: string; value: string }[];
+  backofficeUsers: { label: string; value: string }[];
+  fieldUsers: { label: string; value: string }[];
   user?: { email?: string };
   onSuccess?: () => void;
 }
@@ -23,9 +24,11 @@ interface LeadFormData {
   BatteryType: string;
   SystemSize: string;
   AssignedTo: string;
+  AssignedToField: string;
+  PaymentMode: string;
 }
 
-export function MultiStepClientForm({ salesUsers, user, onSuccess }: MultiStepClientFormProps) {
+export function MultiStepClientForm({ backofficeUsers, fieldUsers, user, onSuccess }: MultiStepClientFormProps) {
   const [pendingClientId] = useState(() => uuidv4().slice(0, 8).toUpperCase());
   const [submitting, setSubmitting] = useState(false);
 
@@ -38,6 +41,8 @@ export function MultiStepClientForm({ salesUsers, user, onSuccess }: MultiStepCl
       BatteryType: '',
       SystemSize: '',
       AssignedTo: '',
+      AssignedToField: '',
+      PaymentMode: 'Loan',
     }
   });
 
@@ -65,6 +70,9 @@ export function MultiStepClientForm({ salesUsers, user, onSuccess }: MultiStepCl
         data.SystemSize,
         new Date().toLocaleDateString('en-GB'),
         data.AssignedTo || user?.email || '',
+        data.AssignedToField || '',
+        data.PaymentMode || 'Loan',
+        'None',
       ];
 
       await appendRow(SHEET_NAMES.CLIENTS, clientRow);
@@ -144,7 +152,7 @@ export function MultiStepClientForm({ salesUsers, user, onSuccess }: MultiStepCl
         </div>
 
         <Select
-          label="Battery Type"
+          label="System Type"
           {...register('BatteryType')}
           options={[
             { label: 'Not decided', value: '' },
@@ -155,9 +163,27 @@ export function MultiStepClientForm({ salesUsers, user, onSuccess }: MultiStepCl
         />
 
         <Select
-          label="Assign To"
+          label="Payment Mode *"
+          {...register('PaymentMode')}
+          options={[
+            { label: 'Loan', value: 'Loan' },
+            { label: 'Cash', value: 'Cash' },
+            { label: 'PDC (78)', value: 'PDC (78)' },
+            { label: 'PDC (30)', value: 'PDC (30)' },
+            { label: 'Advance', value: 'Advance' },
+          ]}
+        />
+
+        <Select
+          label="Assign to Backoffice"
           {...register('AssignedTo')}
-          options={[{ label: 'Unassigned', value: '' }, ...salesUsers]}
+          options={[{ label: 'Unassigned', value: '' }, ...backofficeUsers]}
+        />
+
+        <Select
+          label="Assign to Field Team"
+          {...register('AssignedToField')}
+          options={[{ label: 'Unassigned', value: '' }, ...fieldUsers]}
         />
 
         {/* Tip */}

@@ -3,7 +3,7 @@
  * Tracks all data modifications for audit trail
  */
 
-export type ActivityAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'EXPORT' | 'DOWNLOAD' | 'FAILURE';
+export type ActivityAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'EXPORT' | 'DOWNLOAD' | 'FAILURE' | 'LOGIN' | 'RESTORE_R2';
 
 export interface ActivityLog {
   id: string;
@@ -329,6 +329,8 @@ export function getActionDescription(action: ActivityAction): string {
     EXPORT: 'Exported',
     DOWNLOAD: 'Downloaded',
     FAILURE: 'Failed operation',
+    LOGIN: 'Logged In',
+    RESTORE_R2: 'Restored Backup',
   };
   return descriptions[action] || action;
 }
@@ -345,6 +347,8 @@ export function getActionColor(action: ActivityAction): string {
     EXPORT: 'bg-purple-100 text-purple-800',
     DOWNLOAD: 'bg-indigo-100 text-indigo-800',
     FAILURE: 'bg-red-100 text-red-800',
+    LOGIN: 'bg-yellow-100 text-yellow-800',
+    RESTORE_R2: 'bg-teal-100 text-teal-800',
   };
   return colors[action] || 'bg-gray-100 text-gray-800';
 }

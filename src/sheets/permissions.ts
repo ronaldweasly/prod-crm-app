@@ -20,46 +20,46 @@ export interface RouteAccess {
 // Define all permissions in the system
 const PERMISSIONS: Permission[] = [
   // Dashboard
-  { resource: 'dashboard', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'dashboard', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
 
   // Clients
-  { resource: 'clients', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
-  { resource: 'clients', action: 'create', roles: ['Admin', 'Sales Team'] },
-  { resource: 'clients', action: 'edit', roles: ['Admin', 'Sales Team'] },
+  { resource: 'clients', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'clients', action: 'create', roles: ['Admin', 'Manager', 'Sales Team'] },
+  { resource: 'clients', action: 'edit', roles: ['Admin', 'Manager', 'Sales Team'] },
   { resource: 'clients', action: 'delete', roles: ['Admin'] },
 
   // Surveys
-  { resource: 'surveys', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'surveys', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
   { resource: 'surveys', action: 'create', roles: ['Admin', 'Engineer'] },
   { resource: 'surveys', action: 'edit', roles: ['Admin', 'Engineer'] },
   { resource: 'surveys', action: 'delete', roles: ['Admin'] },
 
   // Quotations
-  { resource: 'quotations', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'quotations', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
   { resource: 'quotations', action: 'create', roles: ['Admin', 'Engineer'] },
   { resource: 'quotations', action: 'edit', roles: ['Admin'] },
   { resource: 'quotations', action: 'approve', roles: ['Admin', 'Accountant'] },
   { resource: 'quotations', action: 'delete', roles: ['Admin'] },
 
   // Installations
-  { resource: 'installations', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'installations', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
   { resource: 'installations', action: 'create', roles: ['Admin', 'Engineer'] },
   { resource: 'installations', action: 'edit', roles: ['Admin', 'Engineer'] },
   { resource: 'installations', action: 'delete', roles: ['Admin'] },
 
   // Payments
-  { resource: 'payments', action: 'view', roles: ['Admin', 'Sales Team', 'Accountant'] },
+  { resource: 'payments', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Accountant'] },
   { resource: 'payments', action: 'edit', roles: ['Admin', 'Accountant'] },
   { resource: 'payments', action: 'approve', roles: ['Admin'] },
   { resource: 'payments', action: 'delete', roles: ['Admin'] },
 
   // Subsidies
-  { resource: 'subsidies', action: 'view', roles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
+  { resource: 'subsidies', action: 'view', roles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
   { resource: 'subsidies', action: 'track', roles: ['Admin', 'Accountant'] },
 
   // Reports
-  { resource: 'reports', action: 'view', roles: ['Admin', 'Accountant'] },
-  { resource: 'reports', action: 'export', roles: ['Admin', 'Accountant'] },
+  { resource: 'reports', action: 'view', roles: ['Admin', 'Manager', 'Accountant'] },
+  { resource: 'reports', action: 'export', roles: ['Admin', 'Manager', 'Accountant'] },
 
   // Users Management
   { resource: 'users', action: 'view', roles: ['Admin'] },
@@ -73,16 +73,16 @@ const PERMISSIONS: Permission[] = [
   { resource: 'backups', action: 'export', roles: ['Admin'] },
   { resource: 'backups', action: 'delete', roles: ['Admin'] },
 
-  { resource: 'activity_logs', action: 'view', roles: ['Admin'] },
-  { resource: 'activity_logs', action: 'export', roles: ['Admin'] },
+  { resource: 'activity_logs', action: 'view', roles: ['Admin', 'Manager'] },
+  { resource: 'activity_logs', action: 'export', roles: ['Admin', 'Manager'] },
 ];
 
 // Define route access
 export const ROUTE_ACCESS: RouteAccess[] = [
-  { path: '/dashboard', allowedRoles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
-  { path: '/clients', allowedRoles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
-  { path: '/clients/:id', allowedRoles: ['Admin', 'Sales Team', 'Engineer', 'Accountant'] },
-  { path: '/reports', allowedRoles: ['Admin', 'Accountant'] },
+  { path: '/dashboard', allowedRoles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
+  { path: '/clients', allowedRoles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
+  { path: '/clients/:id', allowedRoles: ['Admin', 'Manager', 'Sales Team', 'Engineer', 'Accountant'] },
+  { path: '/reports', allowedRoles: ['Admin', 'Manager', 'Accountant'] },
   { path: '/users', allowedRoles: ['Admin'], requireAdmin: true },
 ];
 
@@ -217,6 +217,7 @@ export function getRoleDescription(role: Role): string {
     'Sales Team': 'Manage clients, quotations, and sales pipeline',
     Engineer: 'Create surveys, quotations, manage installations',
     Accountant: 'View payments, subsidies, generate reports',
+    Manager: 'Oversee all CRM data, pipeline, and assignments',
   };
   return descriptions[role];
 }
@@ -230,6 +231,7 @@ export function getRoleBadgeColor(role: Role): string {
     'Sales Team': 'bg-blue-100 text-blue-800',
     Engineer: 'bg-green-100 text-green-800',
     Accountant: 'bg-purple-100 text-purple-800',
+    Manager: 'bg-indigo-100 text-indigo-800',
   };
   return colors[role];
 }

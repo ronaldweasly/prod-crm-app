@@ -4,12 +4,21 @@ import { Card, CardContent } from '../ui/Card';
 import { getSheetData } from '../sheets/api';
 import { SHEET_NAMES } from '../sheets/config';
 import { WorkflowStatusRow, ClientRow, SubsidyRow, PaymentRow } from '../sheets/types';
-import { Users, Loader2, Wrench, IndianRupee, FileText, CheckCircle2, X, ArrowRight, TrendingUp, Info, Calendar, Flag, Zap } from 'lucide-react';
+import { Users, Loader2, Wrench, IndianRupee, FileText, CheckCircle2, X, ArrowRight, TrendingUp, Info, Calendar, Flag, Zap, Globe } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, Legend } from 'recharts';
 import { cn } from '../utils/cn';
 
 // Logo blue palette (used across pipeline charts and stage chips)
 const COLORS = ['#0b5fff', '#0753d1', '#1e3a8a', '#3b82f6', '#60a5fa', '#93c5fd', '#0ea5e9', '#0369a1'];
+
+const SUBS_COLORS: Record<string, string> = {
+  'Not Applied': '#94a3b8',
+  'Applied': '#0b5fff',
+  'Under Review': '#60a5fa',
+  'Approved': '#10b981',
+  'Received': '#0753d1',
+  'Rejected': '#ef4444',
+};
 
 // (Removed local dummy data - using live data source)
 
@@ -43,12 +52,35 @@ export default function Dashboard() {
 
         const activeCurrentStages = Array.from(currentStages.values());
 
+        // Resolve subsidy status for each client (either from explicit subsidies table or fall back to workflow stage)
+        const resolvedSubsidies = clients.map((c: any) => {
+          const explicit = subsidies.find((s: any) => s['Client ID'] === c.ID);
+          if (explicit && explicit.Status) {
+            return {
+              clientId: c.ID,
+              status: explicit.Status,
+              amount: parseFloat(explicit['Amount (₹)']) || 0,
+            };
+          }
+          const w = activeCurrentStages.find((ws: any) => ws['Client ID'] === c.ID);
+          let status = 'Not Applied';
+          if (w) {
+            if (w.Stage === '10. SUBSIDY CLAIM') status = 'Applied';
+            else if (w.Stage === '12. 30% RECEIVED') status = 'Received';
+          }
+          return {
+            clientId: c.ID,
+            status,
+            amount: 0,
+          };
+        });
+
         const metrics = {
           totalLeads: clients.length,
-          ongoingInstallations: activeCurrentStages.filter(w => w.Stage === 'Installation Started' || w.Stage === 'Installation Completed').length,
+          ongoingInstallations: activeCurrentStages.filter(w => w.Stage === '6. STRUCTURE INSTALLATION' || w.Stage === '7. WIRING DONE' || w.Stage === '8. NET METERING').length,
           pendingPayments: payments.filter(p => parseFloat(p['Pending Amount (₹)']) > 0).length,
-          subsidiesInProgress: subsidies.filter(s => (s.Status as string) !== 'Received' && (s.Status as string) !== 'Rejected').length,
-          completedProjects: activeCurrentStages.filter(w => w.Stage === 'Project Closed').length,
+          subsidiesInProgress: resolvedSubsidies.filter(s => s.status !== 'Not Applied' && s.status !== 'Received' && s.status !== 'Rejected').length,
+          completedProjects: activeCurrentStages.filter(w => w.Stage === '13. FILE / CASE CLOSED').length,
         };
 
         const recentActivity = [...workflow]
@@ -60,9 +92,20 @@ export default function Dashboard() {
           }));
 
         const stages = [
-          'Lead', 'Survey Scheduled', 'Survey Done', 'Quotation Sent', 
-          'Quotation Approved', 'Installation Started', 'Installation Completed', 
-          'Subsidy Applied', 'Subsidy Received', 'Project Closed'
+          'Lead',
+          '1. REGISTRATION',
+          '2. LOAN APPLIED',
+          '3. LOAN APPROVED',
+          '4. FIRST DISBURSAL',
+          '5. MARGIN MONEY',
+          '6. STRUCTURE INSTALLATION',
+          '7. WIRING DONE',
+          '8. NET METERING',
+          '9. PORTAL UPDATE',
+          '10. SUBSIDY CLAIM',
+          '11. 30% FILE SENT TO BANK',
+          '12. 30% RECEIVED',
+          '13. FILE / CASE CLOSED'
         ];
         
         const pipelineData = stages.map(stage => ({
@@ -81,7 +124,7 @@ export default function Dashboard() {
           console.error("Failed to fetch live updates", e);
         }
 
-        setData({ metrics, recentActivity, pipelineData, workflow: activeCurrentStages, subsidies, payments, clients, clientMap, liveUpdates });
+        setData({ metrics, recentActivity, pipelineData, workflow: activeCurrentStages, subsidies, payments, clients, clientMap, liveUpdates, resolvedSubsidies });
       } catch (err) {
         console.error("Dashboard data load error", err);
       } finally {
@@ -111,16 +154,17 @@ export default function Dashboard() {
         break;
 
       case 'ongoingInstallations':
-        const progressCounts: Record<string, number> = { 'In Progress': 0, 'Almost Done': 0 };
+        const progressCounts: Record<string, number> = { 'Structure': 0, 'Wiring': 0, 'Net Metering': 0 };
         data.workflow
-          .filter((w: WorkflowStatusRow) => w.Stage === 'Installation Started' || w.Stage === 'Installation Completed')
+          .filter((w: WorkflowStatusRow) => w.Stage === '6. STRUCTURE INSTALLATION' || w.Stage === '7. WIRING DONE' || w.Stage === '8. NET METERING')
           .forEach((w: any) => {
-             if (w.Stage === 'Installation Started') progressCounts['In Progress']++;
-             else progressCounts['Almost Done']++;
+             if (w.Stage === '6. STRUCTURE INSTALLATION') progressCounts['Structure']++;
+             else if (w.Stage === '7. WIRING DONE') progressCounts['Wiring']++;
+             else if (w.Stage === '8. NET METERING') progressCounts['Net Metering']++;
           });
         chart = Object.entries(progressCounts).map(([name, value]) => ({ name, value }));
         details = data.workflow
-          .filter((w: WorkflowStatusRow) => w.Stage === 'Installation Started' || w.Stage === 'Installation Completed')
+          .filter((w: WorkflowStatusRow) => w.Stage === '6. STRUCTURE INSTALLATION' || w.Stage === '7. WIRING DONE' || w.Stage === '8. NET METERING')
           .slice(0, 10)
           .map((w: WorkflowStatusRow) => ({
             id: w['Client ID'],
@@ -145,24 +189,25 @@ export default function Dashboard() {
         break;
 
       case 'subsidiesInProgress':
-        const subStatus: Record<string, number> = { 'Not Applied': 0, 'Applied': 0, 'Under Review': 0, 'Received': 0, 'Rejected': 0 };
-        const subsidyMap = new Map(data.subsidies.map((s: any) => [s['Client ID'], s.Status]));
-        data.clients.forEach((c: any) => {
-          const status = (subsidyMap.get(c.ID) as string) || 'Not Applied';
-          subStatus[status] = (subStatus[status] || 0) + 1;
+        const subStatus: Record<string, number> = { 'Not Applied': 0, 'Applied': 0, 'Under Review': 0, 'Approved': 0, 'Received': 0, 'Rejected': 0 };
+        data.resolvedSubsidies.forEach((s: any) => {
+          subStatus[s.status] = (subStatus[s.status] || 0) + 1;
         });
         chart = Object.entries(subStatus).map(([name, value]) => ({ name, value }));
-        details = data.clients.slice(0, 10).map((c: any) => ({
-          id: c.ID,
-          name: c.Name,
-          value: subsidyMap.get(c.ID) || 'Not Applied',
-        }));
+        details = data.clients.slice(0, 10).map((c: any) => {
+          const rs = data.resolvedSubsidies.find((s: any) => s.clientId === c.ID);
+          return {
+            id: c.ID,
+            name: c.Name,
+            value: rs ? rs.status : 'Not Applied',
+          };
+        });
         break;
 
       case 'completedProjects':
         const monthly: Record<string, number> = {};
         data.workflow
-          .filter((w: WorkflowStatusRow) => w.Stage === 'Project Closed')
+          .filter((w: WorkflowStatusRow) => w.Stage === '13. FILE / CASE CLOSED')
           .forEach((w: any) => {
             const date = new Date(w['Updated At']);
             const month = date.toLocaleString('default', { month: 'short' });
@@ -170,7 +215,7 @@ export default function Dashboard() {
           });
         chart = Object.entries(monthly).map(([name, value]) => ({ name, value }));
         details = data.workflow
-          .filter((w: WorkflowStatusRow) => w.Stage === 'Project Closed')
+          .filter((w: WorkflowStatusRow) => w.Stage === '13. FILE / CASE CLOSED')
           .slice(0, 10)
           .map((w: WorkflowStatusRow) => ({
             id: w['Client ID'],
@@ -255,7 +300,7 @@ export default function Dashboard() {
                               innerRadius="55%" outerRadius="78%"
                               paddingAngle={3} dataKey="value" startAngle={90} endAngle={-270}>
                               {detailChartData.map((_: any, i: number) => (
-                                <Cell key={i} fill={['#0b5fff','#60a5fa'][i % 2]} />
+                                <Cell key={i} fill={['#0b5fff','#60a5fa','#93c5fd'][i % 3]} />
                               ))}
                             </Pie>
                             <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', fontSize: 12 }} />
@@ -266,7 +311,7 @@ export default function Dashboard() {
                       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
                         {detailChartData.map((d: any, i: number) => (
                           <span key={i} className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: ['#0b5fff','#60a5fa'][i % 2] }} />
+                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: ['#0b5fff','#60a5fa','#93c5fd'][i % 3] }} />
                             {d.name} <span className="font-black text-slate-900">{d.value}</span>
                           </span>
                         ))}
@@ -408,8 +453,8 @@ export default function Dashboard() {
                           <td className="px-6 py-3">
                             <span className={cn(
                               "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                              item.value === 'Received' || item.value === 'Project Closed' ? "bg-green-100 text-green-700" :
-                              item.value === 'Under Review' || item.value === 'Applied' ? "bg-amber-100 text-amber-700" :
+                              item.value === 'Received' || item.value === '12. 30% RECEIVED' || item.value === '13. FILE / CASE CLOSED' ? "bg-green-100 text-green-700" :
+                              item.value === 'Under Review' || item.value === 'Applied' || item.value === '10. SUBSIDY CLAIM' ? "bg-amber-100 text-amber-700" :
                               item.value === 'Not Applied' ? "bg-slate-100 text-slate-500" :
                               "bg-blue-100 text-blue-700"
                             )}>
@@ -515,16 +560,13 @@ export default function Dashboard() {
 
   const subsidyBreakdown = (() => {
     const map = new Map<string, number>();
-    data.subsidies.forEach((s: any) => {
-      const k = s.Status || 'Not Applied';
-      map.set(k, (map.get(k) || 0) + 1);
+    data.resolvedSubsidies.forEach((s: any) => {
+      map.set(s.status, (map.get(s.status) || 0) + 1);
     });
-    // include Not Applied from clients
-    const appliedIds = new Set(data.subsidies.map((s: any) => s['Client ID']));
-    const notAppliedCount = data.clients.filter((c: any) => !appliedIds.has(c.ID)).length;
-    map.set('Not Applied', (map.get('Not Applied') || 0) + notAppliedCount);
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   })();
+
+  const totalSubsidiesCount = data.resolvedSubsidies.filter((s: any) => s.status !== 'Not Applied').length;
 
   const topPendingPayments = (() => {
     const list = data.payments
@@ -674,19 +716,17 @@ export default function Dashboard() {
                   <div className="h-36 flex items-center justify-center relative">
                     <ResponsiveContainer width="100%" height={140}>
                       <PieChart>
-                        <Pie data={subsidyBreakdown} dataKey="value" nameKey="name" innerRadius={34} outerRadius={56} paddingAngle={4}>
+                        <Pie data={subsidyBreakdown} dataKey="value" nameKey="name" innerRadius={38} outerRadius={56} paddingAngle={4}>
                           {subsidyBreakdown.map((s: any, i: number) => (
-                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                            <Cell key={i} fill={SUBS_COLORS[s.name] || COLORS[i % COLORS.length]} />
                           ))}
                         </Pie>
                         <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 6px 18px rgba(0,0,0,0.08)' }} />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="flex flex-col items-center">
-                        <div className="text-2xl font-extrabold text-slate-800">{data.subsidies.length}</div>
-                        <div className="text-xs text-slate-400">Total Subsidy</div>
-                      </div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-2xl font-extrabold text-slate-800 leading-none">{totalSubsidiesCount}</span>
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 mt-1">Total Subsidy</span>
                     </div>
                   </div>
                 </div>
@@ -782,15 +822,19 @@ export default function Dashboard() {
                 const color = COLORS[i % COLORS.length];
                 const IconMap: Record<string, any> = {
                   'Lead': Users,
-                  'Survey Scheduled': Calendar,
-                  'Survey Done': CheckCircle2,
-                  'Quotation Sent': ArrowRight,
-                  'Quotation Approved': CheckCircle2,
-                  'Installation Started': Wrench,
-                  'Installation Completed': CheckCircle2,
-                  'Subsidy Applied': FileText,
-                  'Subsidy Received': FileText,
-                  'Project Closed': Flag,
+                  '1. REGISTRATION': Users,
+                  '2. LOAN APPLIED': FileText,
+                  '3. LOAN APPROVED': CheckCircle2,
+                  '4. FIRST DISBURSAL': ArrowRight,
+                  '5. MARGIN MONEY': IndianRupee,
+                  '6. STRUCTURE INSTALLATION': Wrench,
+                  '7. WIRING DONE': Zap,
+                  '8. NET METERING': CheckCircle2,
+                  '9. PORTAL UPDATE': Globe,
+                  '10. SUBSIDY CLAIM': Info,
+                  '11. 30% FILE SENT TO BANK': ArrowRight,
+                  '12. 30% RECEIVED': TrendingUp,
+                  '13. FILE / CASE CLOSED': Flag,
                 };
                 const StageIcon = IconMap[row.name] || Users;
                 return (

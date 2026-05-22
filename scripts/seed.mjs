@@ -22,9 +22,20 @@ const LAST_NAMES = ['Sharma', 'Verma', 'Gupta', 'Singh', 'Kumar', 'Patel', 'Shah
 const CITIES = ['Mumbai, MH', 'Delhi, DL', 'Bangalore, KA', 'Hyderabad, TS', 'Ahmedabad, GJ', 'Chennai, TN', 'Kolkata, WB', 'Surat, GJ', 'Pune, MH', 'Jaipur, RJ'];
 const ROOF_TYPES = ['Flat RCC', 'Slanted Tin', 'Slanted Tiled', 'Industrial Shed'];
 const STAGES = [
-  'Lead', 'Survey Scheduled', 'Survey Done', 'Quotation Sent', 
-  'Quotation Approved', 'Installation Started', 'Installation Completed', 
-  'Subsidy Applied', 'Subsidy Received', 'Project Closed'
+  'Lead',
+  '1. REGISTRATION',
+  '2. LOAN APPLIED',
+  '3. LOAN APPROVED',
+  '4. FIRST DISBURSAL',
+  '5. MARGIN MONEY',
+  '6. STRUCTURE INSTALLATION',
+  '7. WIRING DONE',
+  '8. NET METERING',
+  '9. PORTAL UPDATE',
+  '10. SUBSIDY CLAIM',
+  '11. 30% FILE SENT TO BANK',
+  '12. 30% RECEIVED',
+  '13. FILE / CASE CLOSED'
 ];
 
 function randomElement(arr) {
@@ -71,7 +82,9 @@ async function seedData() {
       roof_type: randomElement(ROOF_TYPES),
       system_size_kw: Number(systemSize),
       created_date: createdDate.toISOString(),
-      assigned_to: adminEmail
+      assigned_to: adminEmail,
+      payment_mode: randomElement(['Loan', 'Cash', 'PDC (78)', 'PDC (30)', 'Advance']),
+      dispute_status: 'None'
     });
 
     workflow_status.push({
@@ -82,7 +95,7 @@ async function seedData() {
     });
 
     // If past survey scheduled
-    if (stageIndex >= 2) {
+    if (stageIndex >= 1) {
       surveys.push({
         client_id: clientId,
         survey_date: new Date(createdDate.getTime() + 172800000).toISOString().split('T')[0],
@@ -93,39 +106,39 @@ async function seedData() {
 
     // If past quotation
     const amount = Math.floor(systemSize * 60000); // roughly ₹60,000 per kW
-    if (stageIndex >= 3) {
+    if (stageIndex >= 1) {
       quotations.push({
         client_id: clientId,
         amount: amount,
         validity_date: new Date(createdDate.getTime() + 2592000000).toISOString().split('T')[0],
-        approval_status: stageIndex >= 4 ? 'Approved' : 'Pending'
+        approval_status: stageIndex >= 3 ? 'Approved' : 'Pending'
       });
     }
 
     // If past installation started
-    if (stageIndex >= 5) {
+    if (stageIndex >= 6) {
       installations.push({
         client_id: clientId,
         team_members: 'Alpha Team',
-        progress_notes: stageIndex >= 6 ? 'Completed successfully' : 'Wiring in progress',
-        completion_percentage: stageIndex >= 6 ? 100 : Math.floor(Math.random() * 80 + 10),
+        progress_notes: stageIndex >= 8 ? 'Completed successfully' : stageIndex === 7 ? 'Wiring completed' : 'Structure installation completed',
+        completion_percentage: stageIndex >= 8 ? 100 : stageIndex === 7 ? 70 : 30,
         start_date: new Date(createdDate.getTime() + 864000000).toISOString().split('T')[0],
-        end_date: stageIndex >= 6 ? new Date(createdDate.getTime() + 1036800000).toISOString().split('T')[0] : null
+        end_date: stageIndex >= 8 ? new Date(createdDate.getTime() + 1036800000).toISOString().split('T')[0] : null
       });
     }
 
     // Subsidies
-    if (stageIndex >= 7) {
+    if (stageIndex >= 10) {
       subsidies.push({
         client_id: clientId,
-        status: stageIndex >= 8 ? 'Received' : 'Under Review',
+        status: stageIndex >= 12 ? 'Received' : 'Under Review',
         applied_date: new Date(createdDate.getTime() + 1209600000).toISOString().split('T')[0],
         amount: Math.floor(amount * 0.2) // 20% subsidy roughly
       });
     }
 
     // Payments
-    const paidAmount = stageIndex >= 9 ? amount : stageIndex >= 5 ? Math.floor(amount * 0.5) : 0;
+    const paidAmount = stageIndex >= 13 ? amount : stageIndex >= 6 ? Math.floor(amount * 0.5) : 0;
     payments.push({
       client_id: clientId,
       total_amount: amount,

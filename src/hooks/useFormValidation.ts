@@ -126,7 +126,7 @@ export function useFormValidation<T extends Record<string, any>>(
           // Handle validation errors
           if (err instanceof z.ZodError) {
             const fieldErrors: Record<string, string> = {};
-            err.errors.forEach(error => {
+            err.issues.forEach(error => {
               const path = error.path.join('.');
               fieldErrors[path] = error.message;
             });

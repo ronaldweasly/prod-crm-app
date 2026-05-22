@@ -30,7 +30,7 @@ export interface ProposalData {
   companyEmail: string;
   warrantyYearsPanel: number;
   warrantyYearsInverter: number;
-  warrantyYearsStructure: number;
   notes?: string;
+  customTerms?: string;
   useDoctorElectricLogo?: boolean;
 }

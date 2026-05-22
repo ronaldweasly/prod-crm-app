@@ -17,9 +17,39 @@ import { FileText, Trash2, Camera, Paperclip } from 'lucide-react';
 import ProposalGenerator from '../components/ProposalGenerator';
 
 const STAGES = [
-  'Lead', 'Survey Scheduled', 'Survey Done', 'Quotation Sent',
-  'Quotation Approved', 'Installation Started', 'Installation Completed',
-  'Subsidy Applied', 'Subsidy Received', 'Project Closed'
+  'Lead',
+  '1. REGISTRATION',
+  '2. LOAN APPLIED',
+  '3. LOAN APPROVED',
+  '4. FIRST DISBURSAL',
+  '5. MARGIN MONEY',
+  '6. STRUCTURE INSTALLATION',
+  '7. WIRING DONE',
+  '8. NET METERING',
+  '9. PORTAL UPDATE',
+  '10. SUBSIDY CLAIM',
+  '11. 30% FILE SENT TO BANK',
+  '12. 30% RECEIVED',
+  '13. FILE / CASE CLOSED'
+];
+
+const PHASES = [
+  {
+    title: 'Pre-requisites',
+    stages: ['Lead', '1. REGISTRATION'],
+  },
+  {
+    title: 'Loan Processing',
+    stages: ['2. LOAN APPLIED', '3. LOAN APPROVED', '4. FIRST DISBURSAL', '5. MARGIN MONEY'],
+  },
+  {
+    title: 'On-Site Execution',
+    stages: ['6. STRUCTURE INSTALLATION', '7. WIRING DONE', '8. NET METERING'],
+  },
+  {
+    title: 'Closure & Subsidy',
+    stages: ['9. PORTAL UPDATE', '10. SUBSIDY CLAIM', '11. 30% FILE SENT TO BANK', '12. 30% RECEIVED', '13. FILE / CASE CLOSED'],
+  },
 ];
 
 const DocumentPreview = ({ url, label }: { url?: string; label?: string }) => {
@@ -137,7 +167,7 @@ export default function ClientDetail() {
   }, [id]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, state: any, setState: any, fieldKey: string) => {
-    const files = Array.from(e.target.files || []);
+    const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
 
     const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
@@ -199,7 +229,21 @@ export default function ClientDetail() {
   };
 
   const handleStageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newStage = e.target.value;
+    let newStage = e.target.value;
+
+    if (client?.['Dispute Status'] === 'Resolving') {
+      toast.error('Workflow is paused due to an active dispute');
+      return;
+    }
+
+    const isLoanMode = client?.['Payment Mode'] === 'Loan';
+    if (!isLoanMode && currentStage === '1. REGISTRATION') {
+      const targetIndex = STAGES.indexOf(newStage);
+      if (targetIndex >= 2 && targetIndex <= 5) {
+        newStage = '6. STRUCTURE INSTALLATION';
+      }
+    }
+
     try {
       const row = [id, newStage, new Date().toISOString(), user?.email || ''];
       await appendRowProtected(SHEET_NAMES.WORKFLOW_STATUS, row, user?.email, user?.role);
@@ -254,6 +298,92 @@ export default function ClientDetail() {
   const isAccountant = user?.role === 'Accountant';
   const isSales = user?.role === 'Sales Team';
 
+  const canManageDispute = isAdmin || user?.role === 'Manager';
+  const canManagePayment = isAdmin || user?.role === 'Manager' || isSales;
+
+  const isLoanMode = client?.['Payment Mode'] === 'Loan';
+
+  const getStageStatus = (stage: string) => {
+    const stageIndex = STAGES.indexOf(stage);
+    const currentStageIndex = STAGES.indexOf(currentStage);
+
+    // Check if this stage is skipped/N/A
+    const isLoanStage = ['2. LOAN APPLIED', '3. LOAN APPROVED', '4. FIRST DISBURSAL', '5. MARGIN MONEY'].includes(stage);
+    if (!isLoanMode && isLoanStage) {
+      return 'skipped';
+    }
+
+    // Bypass checks for closure/subsidy
+    const isClosureStage = ['9. PORTAL UPDATE', '10. SUBSIDY CLAIM', '11. 30% FILE SENT TO BANK', '12. 30% RECEIVED'].includes(stage);
+    if (isClosureStage && currentStage === '13. FILE / CASE CLOSED') {
+      const hasHistoryEntry = history.some(h => h.Stage === stage);
+      if (!hasHistoryEntry) {
+        return 'skipped';
+      }
+    }
+
+    if (stage === currentStage) {
+      return 'active';
+    }
+
+    if (currentStageIndex > stageIndex) {
+      return 'completed';
+    }
+
+    return 'pending';
+  };
+
+  const stageOptions = STAGES.map(s => {
+    const isLoanStage = ['2. LOAN APPLIED', '3. LOAN APPROVED', '4. FIRST DISBURSAL', '5. MARGIN MONEY'].includes(s);
+    if (!isLoanMode && isLoanStage) {
+      return { label: `${s} (Skipped, N/A)`, value: s, disabled: true };
+    }
+    return { label: s, value: s };
+  });
+
+  const handleUpdateClientField = async (field: 'Payment Mode' | 'Dispute Status', value: string) => {
+    try {
+      const updatedClient = {
+        ...client,
+        [field]: value
+      };
+      const rowData = [
+        updatedClient.ID,
+        updatedClient.Name,
+        updatedClient.Phone,
+        updatedClient.Address,
+        updatedClient['Roof Type'],
+        updatedClient['Battery Type'] || '',
+        updatedClient['System Size (kW)'],
+        updatedClient['Created Date'],
+        updatedClient['Assigned To'] || '',
+        updatedClient['Assigned To Field'] || '',
+        updatedClient['Payment Mode'],
+        updatedClient['Dispute Status'],
+      ];
+
+      await updateRowProtected(SHEET_NAMES.CLIENTS, client._rowIndex, rowData, user?.email, user?.role);
+      toast.success(`${field} updated successfully`);
+
+      // Auto-advance client's stage to 6 if changing to a non-loan mode and currently in stages 2-5
+      if (field === 'Payment Mode' && value !== 'Loan') {
+        const stageIndex = STAGES.indexOf(currentStage);
+        if (stageIndex >= 2 && stageIndex <= 5) {
+          const newStage = '6. STRUCTURE INSTALLATION';
+          const workflowRow = [id, newStage, new Date().toISOString(), user?.email || ''];
+          await appendRowProtected(SHEET_NAMES.WORKFLOW_STATUS, workflowRow, user?.email, user?.role);
+          logDataModification('UPDATE', SHEET_NAMES.WORKFLOW_STATUS, id!, user?.id || '', user?.email || '',
+            [{ field: 'Stage', oldValue: currentStage, newValue: newStage }], client?.Name);
+          toast.success(`Workflow stage auto-advanced to ${newStage} (skipped Loan stages for non-Loan payment mode)`);
+        }
+      }
+
+      loadData(true);
+    } catch (err: any) {
+      toast.error(err.message || `Failed to update ${field}`);
+    }
+  };
+
   const canEditSurvey = isAdmin || isEngineer;
   const canEditQuotation = isAdmin;
   const canEditInstallation = isAdmin || isEngineer;
@@ -276,25 +406,43 @@ export default function ClientDetail() {
 
   return (
     <div className="space-y-6">
+      {client?.['Dispute Status'] === 'Resolving' && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-sm animate-pulse">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div>
+              <h3 className="text-sm font-bold text-red-800">Workflow Paused due to Active Dispute</h3>
+              <p className="text-xs text-red-700 mt-0.5">A dispute ticket is currently open for this client. Stage transitions are locked until resolved.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center flex-wrap gap-2 sm:gap-4">
           <Button variant="outline" onClick={() => navigate(-1)} className="px-2 sm:px-4">
             &larr; <span className="hidden sm:inline ml-1">Back</span>
           </Button>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight truncate max-w-[200px] sm:max-w-md">{client?.Name}</h1>
-          <Badge variant={currentStage === 'Project Closed' ? 'success' : 'warning'}>{currentStage}</Badge>
+          <Badge variant={currentStage === '13. FILE / CASE CLOSED' ? 'success' : 'warning'}>{currentStage}</Badge>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4 w-full md:w-auto">
           {(!isEngineer && !isAccountant) && (
-            <div className="flex items-center gap-2 flex-1 md:flex-none">
-              <span className="text-sm font-medium text-gray-500 hidden sm:inline whitespace-nowrap">Update Stage:</span>
-              <Select
-                value={currentStage}
-                onChange={handleStageChange}
-                options={STAGES.map(s => ({label: s, value: s}))}
-                className="w-full md:w-48"
-              />
+            <div className="flex flex-col items-end gap-1 flex-1 md:flex-none">
+              <div className="flex items-center gap-2 w-full">
+                <span className="text-sm font-medium text-gray-500 hidden sm:inline whitespace-nowrap">Update Stage:</span>
+                <Select
+                  value={currentStage}
+                  onChange={handleStageChange}
+                  options={stageOptions}
+                  className="w-full md:w-48"
+                  disabled={client?.['Dispute Status'] === 'Resolving'}
+                />
+              </div>
+              {client?.['Dispute Status'] === 'Resolving' && (
+                <span className="text-[10px] text-red-600 font-semibold mt-0.5">⚠️ Workflow paused due to active dispute</span>
+              )}
             </div>
           )}
           
@@ -331,32 +479,163 @@ export default function ClientDetail() {
       <Card>
         <CardContent className="p-6">
           {activeTab === 'Overview' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold border-b pb-2">Client Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="text-gray-500">Client ID</div><div className="font-medium text-gray-900">{client?.ID}</div>
-                  <div className="text-gray-500">Phone</div><div className="font-medium text-gray-900">{client?.Phone}</div>
-                  <div className="text-gray-500">Address</div><div className="font-medium text-gray-900">{client?.Address}</div>
-                  <div className="text-gray-500">System Size</div><div className="font-medium text-gray-900">{client?.['System Size (kW)']} kW ({client?.['Roof Type']})</div>
-                  <div className="text-gray-500">Battery</div><div className="font-medium text-gray-900">{client?.['Battery Type'] || 'Not set'}</div>
-                  <div className="text-gray-500">Created Date</div><div className="font-medium text-gray-900">{client?.['Created Date']}</div>
-                  <div className="text-gray-500">Assigned To</div><div className="font-medium text-gray-900">{client?.['Assigned To'] || 'Unassigned'}</div>
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Client Details</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="text-gray-500">Client ID</div><div className="font-medium text-gray-900">{client?.ID}</div>
+                    <div className="text-gray-500">Phone</div><div className="font-medium text-gray-900">{client?.Phone}</div>
+                    <div className="text-gray-500">Address</div><div className="font-medium text-gray-900">{client?.Address}</div>
+                    <div className="text-gray-500">System Size</div><div className="font-medium text-gray-900">{client?.['System Size (kW)']} kW ({client?.['Roof Type']})</div>
+                    <div className="text-gray-500">System Type</div><div className="font-medium text-gray-900">{client?.['Battery Type'] || 'Not set'}</div>
+                    <div className="text-gray-500">Created Date</div><div className="font-medium text-gray-900">{client?.['Created Date']}</div>
+                    <div className="text-gray-500">Assigned To (Backoffice)</div><div className="font-medium text-gray-900">{client?.['Assigned To'] || 'Unassigned'}</div>
+                    <div className="text-gray-500">Assigned To (Field Team)</div><div className="font-medium text-gray-900">{client?.['Assigned To Field'] || 'Unassigned'}</div>
+                    
+                    <div className="text-gray-500 flex items-center">Payment Mode</div>
+                    <div>
+                      {canManagePayment ? (
+                        <select
+                          value={client?.['Payment Mode'] || 'Loan'}
+                          onChange={(e) => handleUpdateClientField('Payment Mode', e.target.value)}
+                          className="rounded-lg border-2 border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-blue-500 cursor-pointer shadow-sm"
+                          disabled={client?.['Dispute Status'] === 'Resolving'}
+                        >
+                          <option value="Loan">Loan</option>
+                          <option value="Cash">Cash</option>
+                          <option value="PDC (78)">PDC (78)</option>
+                          <option value="PDC (30)">PDC (30)</option>
+                          <option value="Advance">Advance</option>
+                        </select>
+                      ) : (
+                        <span className="font-medium text-gray-900">{client?.['Payment Mode'] || 'Loan'}</span>
+                      )}
+                    </div>
+
+                    <div className="text-gray-500 flex items-center">Dispute Status</div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                        client?.['Dispute Status'] === 'Resolving' 
+                          ? 'bg-red-50 text-red-700 border-red-200 animate-pulse' 
+                          : 'bg-green-50 text-green-700 border-green-200'
+                      }`}>
+                        {client?.['Dispute Status'] || 'None'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {canManageDispute && (
+                    <div className="border-t border-slate-100 pt-4 mt-2">
+                      {client?.['Dispute Status'] === 'Resolving' ? (
+                        <Button
+                          variant="primary"
+                          className="w-full bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2 text-xs py-2.5 font-bold shadow-md rounded-xl"
+                          onClick={() => {
+                            if (window.confirm("Are you sure you want to resolve the active dispute ticket? This will resume the workflow progression.")) {
+                              handleUpdateClientField('Dispute Status', 'None');
+                            }
+                          }}
+                        >
+                          ✓ Resolve Active Dispute
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          className="w-full text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 flex items-center justify-center gap-2 text-xs py-2.5 font-bold shadow-sm rounded-xl"
+                          onClick={() => {
+                            if (window.confirm("Are you sure you want to raise a dispute ticket? This will lock all stage updates and pause workflow progression.")) {
+                              handleUpdateClientField('Dispute Status', 'Resolving');
+                            }
+                          }}
+                        >
+                          ⚠️ Raise Dispute Ticket
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
+                   <h3 className="text-lg font-semibold border-b pb-2">Workflow History</h3>
+                   <div className="space-y-4">
+                      {history.map((h, i) => (
+                        <div key={i} className="flex border-l-2 border-solar ml-2 pl-4 py-1">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{h.Stage}</p>
+                            <p className="text-xs text-gray-500">{new Date(h['Updated At']).toLocaleString()} by {h['Updated By']}</p>
+                          </div>
+                        </div>
+                      ))}
+                   </div>
                 </div>
               </div>
 
-              <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
-                 <h3 className="text-lg font-semibold border-b pb-2">Workflow History</h3>
-                 <div className="space-y-4">
-                    {history.map((h, i) => (
-                      <div key={i} className="flex border-l-2 border-solar ml-2 pl-4 py-1">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{h.Stage}</p>
-                          <p className="text-xs text-gray-500">{new Date(h['Updated At']).toLocaleString()} by {h['Updated By']}</p>
-                        </div>
+              {/* Visual Pipeline Stepper */}
+              <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-200/60 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⚡</span>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Workflow Pipeline</h3>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm flex items-center gap-1.5">
+                      Mode: <strong className="text-slate-800 font-bold">{client?.['Payment Mode'] || 'Loan'}</strong>
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm ${
+                      client?.['Dispute Status'] === 'Resolving'
+                        ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                        : 'bg-green-50 text-green-700 border-green-200'
+                    }`}>
+                      DISPUTE: {client?.['Dispute Status'] === 'Resolving' ? 'RESOLVING' : 'NONE'}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {PHASES.map((phase) => (
+                    <div key={phase.title} className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-0.5">
+                        <span className="text-xs font-bold text-slate-700">{phase.title}</span>
                       </div>
-                    ))}
-                 </div>
+                      
+                      <div className="space-y-1.5 flex-1">
+                        {phase.stages.map((stage) => {
+                          const status = getStageStatus(stage);
+                          const displayLabel = stage.replace(/^\d+\.\s*/, '');
+                          
+                          let icon = null;
+                          let classes = '';
+                          
+                          if (status === 'completed') {
+                            icon = <span className="flex-shrink-0 w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold shadow-sm">✓</span>;
+                            classes = 'bg-emerald-50/30 border-emerald-100/60 text-emerald-800';
+                          } else if (status === 'active') {
+                            icon = <span className="flex-shrink-0 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold animate-pulse shadow-sm">●</span>;
+                            classes = 'bg-blue-50/80 border-blue-200 text-blue-900 font-semibold ring-1 ring-blue-100 animate-pulse';
+                          } else if (status === 'skipped') {
+                            icon = <span className="flex-shrink-0 w-4 h-4 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center text-[8px] font-bold font-mono">N/A</span>;
+                            classes = 'bg-slate-50/40 border-slate-200/40 border-dashed text-slate-400 opacity-80';
+                          } else {
+                            icon = <span className="flex-shrink-0 w-4 h-4 rounded-full bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center text-[10px] font-medium"></span>;
+                            classes = 'bg-white border-slate-100/70 text-slate-500';
+                          }
+
+                          return (
+                            <div 
+                              key={stage} 
+                              className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs leading-none transition-all ${classes}`}
+                              title={stage}
+                            >
+                              {icon}
+                              <span className="truncate flex-1 font-medium">{displayLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -540,7 +819,7 @@ export default function ClientDetail() {
                   </div>
                   <div className="border-t pt-3">
                     <label className="text-xs font-medium text-slate-600 block mb-1.5">Or Enter Aadhaar Number</label>
-                    <Input value={documents['Aadhaar Number'] || ''} onChange={e => setDocuments({...documents, 'Aadhaar Number': e.target.value})} placeholder="XXXX XXXX XXXX" maxLength="12" />
+                    <Input value={documents['Aadhaar Number'] || ''} onChange={e => setDocuments({...documents, 'Aadhaar Number': e.target.value})} placeholder="XXXX XXXX XXXX" maxLength={12} />
                   </div>
                 </div>
               </div>

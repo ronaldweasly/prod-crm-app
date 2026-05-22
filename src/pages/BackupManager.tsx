@@ -395,7 +395,7 @@ export default function BackupManager() {
                           {restoringR2Key === backup.key ? 'Restoring...' : 'Restore'}
                         </Button>
                       ) : (
-                        <Badge variant="outline" className="text-gray-400">
+                        <Badge variant="default" className="text-gray-400">
                           Admin Only
                         </Badge>
                       )}
@@ -455,7 +455,7 @@ export default function BackupManager() {
                             {restoringLocalId === backup.id ? 'Restoring...' : 'Restore'}
                           </Button>
                         ) : (
-                          <Badge variant="outline" className="text-gray-400">
+                          <Badge variant="default" className="text-gray-400">
                             Admin Only
                           </Badge>
                         )}

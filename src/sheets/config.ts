@@ -11,7 +11,7 @@ export const SHEET_NAMES = {
 };
 
 export const COLUMNS = {
-  CLIENTS: ['ID', 'Name', 'Phone', 'Address', 'Roof Type', 'Battery Type', 'System Size (kW)', 'Created Date', 'Assigned To'],
+  CLIENTS: ['ID', 'Name', 'Phone', 'Address', 'Roof Type', 'Battery Type', 'System Size (kW)', 'Created Date', 'Assigned To', 'Assigned To Field', 'Payment Mode', 'Dispute Status'],
   WORKFLOW_STATUS: ['Client ID', 'Stage', 'Updated At', 'Updated By'],
   SURVEYS: ['Client ID', 'Survey Date', 'Site Images', 'Recommended System Details', 'Surveyor Name'],
   QUOTATIONS: ['Client ID', 'Quotation PDF', 'Amount (₹)', 'Validity Date', 'Approval Status'],
