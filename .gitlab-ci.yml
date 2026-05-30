@@ -1,0 +1,30 @@
+stages:
+
+* build
+* deploy
+
+variables:
+NODE_ENV: production
+
+build:
+stage: build
+tags:
+- ec2
+script:
+- cd /opt/solarcrm
+- npm install
+- npm --prefix infrastructure/backend install
+- npm run backend:build
+- npm run build
+
+deploy:
+stage: deploy
+tags:
+- ec2
+script:
+- cd /opt/solarcrm
+- git fetch origin
+- git reset --hard origin/master
+- pm2 restart solarcrm || true
+only:
+- master
